@@ -369,6 +369,7 @@ def convert_to_tf_records(raw_data_dir):
 
   # Shuffle training records to ensure we are distributing classes
   # across the batches.
+  tf.logging.info('training records to ensure we are distributing classes across the batches.')
   random.seed(0)
   def make_shuffle_idx(n):
     order = [_ for _ in range(n)]
@@ -376,10 +377,12 @@ def convert_to_tf_records(raw_data_dir):
     return order
 
   # Glob all the training files
+  tf.logging.info('Glob all the training files.')
   training_files = tf.gfile.Glob(
       os.path.join(raw_data_dir, TRAINING_DIRECTORY, '*', '*.JPEG'))
 
   # Get training file synset labels from the directory name
+  tf.logging.info('Get training file synset labels from the directory name.')
   training_synsets = [
       os.path.basename(os.path.dirname(f)) for f in training_files]
 
@@ -388,14 +391,17 @@ def convert_to_tf_records(raw_data_dir):
   training_synsets = [training_synsets[i] for i in training_shuffle_idx]
 
   # Glob all the validation files
+  tf.logging.info('Glob all the validation files.')
   validation_files = sorted(tf.gfile.Glob(
       os.path.join(raw_data_dir, VALIDATION_DIRECTORY, '*.JPEG')))
 
   # Get validation file synset labels from labels.txt
+  tf.logging.info('Get validation file synset labels from labels.txt')
   validation_synsets = tf.gfile.FastGFile(
       os.path.join(raw_data_dir, LABELS_FILE), 'r').read().splitlines()
 
   # Create unique ids for all synsets
+  tf.logging.info('Create unique ids for all synsets.')
   labels = {v: k + 1 for k, v in enumerate(
       sorted(set(validation_synsets + training_synsets)))}
 
