@@ -156,9 +156,14 @@ def _int64_feature(value):
   return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
 
 
+def _as_bytes(x):
+  if isinstance(x, str):
+    return x.encode('utf8')
+  return x
+
 def _bytes_feature(value):
   """Wrapper for inserting bytes features into Example proto."""
-  return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+  return tf.train.Feature(bytes_list=tf.train.BytesList(value=[_as_bytes(value)]))
 
 
 def _convert_to_example(filename, image_buffer, label, synset, height, width):
@@ -279,7 +284,7 @@ def _process_image(filename, coder):
     width: integer, image width in pixels.
   """
   # Read the image file.
-  with tf.gfile.FastGFile(filename, 'r') as f:
+  with tf.gfile.FastGFile(filename, 'rb') as f:
     image_data = f.read()
 
   # Clean the dirty data.
@@ -366,7 +371,7 @@ def convert_to_tf_records(raw_data_dir):
   # across the batches.
   random.seed(0)
   def make_shuffle_idx(n):
-    order = range(n)
+    order = [_ for _ in range(n)]
     random.shuffle(order)
     return order
 
