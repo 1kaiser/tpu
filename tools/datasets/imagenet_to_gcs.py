@@ -50,6 +50,7 @@ import os
 import random
 import tarfile
 import urllib
+import tqdm
 
 from absl import app
 from absl import flags
@@ -321,7 +322,7 @@ def _process_image_files_batch(coder, output_file, filenames, synsets, labels):
   """
   writer = tf.python_io.TFRecordWriter(output_file)
 
-  for filename, synset in zip(filenames, synsets):
+  for filename, synset in tqdm.tqdm(list(zip(filenames, synsets))):
     image_buffer, height, width = _process_image(filename, coder)
     label = labels[synset]
     example = _convert_to_example(filename, image_buffer, label,
@@ -352,7 +353,7 @@ def _process_dataset(filenames, synsets, labels, output_directory, prefix,
 
   files = []
 
-  for shard in range(num_shards):
+  for shard in tqdm.tqdm([_ for _ in range(num_shards)]):
     chunk_files = filenames[shard * chunksize : (shard + 1) * chunksize]
     chunk_synsets = synsets[shard * chunksize : (shard + 1) * chunksize]
     output_file = os.path.join(
