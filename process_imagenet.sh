@@ -1,0 +1,1 @@
+set -x; exec python3 -m pdb -c continue tools/datasets/imagenet_to_gcs.py --project="gpt-2-15b-poetry" --gcs_output_path="gs://gpt-2-poetry/data/imagenet/out" --local_scratch_dir="/urdisk2/data/scratch" --raw_data_dir="/urdisk2/data/imagenet" "$@"
