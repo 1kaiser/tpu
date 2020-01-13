@@ -266,6 +266,22 @@ def resnet_model_fn(features, labels, mode, params):
   """
   if isinstance(features, dict):
     features = features['feature']
+  if not 'precision' in params:
+    params2 = params
+    params = params_dict.ParamsDict(
+        resnet_config.RESNET_CFG, resnet_config.RESNET_RESTRICTIONS)
+    params = params_dict.override_params_dict(
+        params, FLAGS.config_file, is_strict=True)
+    params = params_dict.override_params_dict(
+        params, FLAGS.params_override, is_strict=True)
+
+    params = flags_to_params.override_params_from_input_flags(params, FLAGS)
+
+    params.validate()
+    params.lock()
+    params = params.__dict__
+    for k, v in params2.items():
+        params[k] = v
 
   # In most cases, the default data format NCHW instead of NHWC should be
   # used for a significant performance boost on GPU/TPU. NHWC should be used
@@ -275,8 +291,9 @@ def resnet_model_fn(features, labels, mode, params):
     assert not params['transpose_input']    # channels_first only for GPU
     features = tf.transpose(features, [0, 3, 1, 2])
 
-  if params['transpose_input'] and mode != tf.estimator.ModeKeys.PREDICT:
-    image_size = tf.sqrt(tf.shape(features)[0] / (3 * tf.shape(labels)[0]))
+  if mode != tf.estimator.ModeKeys.PREDICT:
+    #image_size = tf.sqrt(tf.shape(features)[0] / (3 * tf.shape(labels)[0]))
+    image_size = features.shape[1].value
     features = tf.reshape(features, [image_size, image_size, 3, -1])
     features = tf.transpose(features, [3, 0, 1, 2])  # HWCN to NHWC
 
@@ -562,6 +579,7 @@ def main(unused_argv):
       save_checkpoints_steps=save_checkpoints_steps,
       log_step_count_steps=FLAGS.log_step_count_steps,
       session_config=tf.ConfigProto(
+          allow_soft_placement=True,
           graph_options=tf.GraphOptions(
               rewrite_options=rewriter_config_pb2.RewriterConfig(
                   disable_meta_optimizer=True))),

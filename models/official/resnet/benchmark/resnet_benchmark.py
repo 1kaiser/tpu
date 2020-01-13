@@ -80,12 +80,12 @@ def main(unused_argv):
   imagenet_train = imagenet_input.ImageNetInput(
       is_training=True,
       data_dir=FLAGS.data_dir,
-      use_bfloat16=True,
+      use_bfloat16=False,
       transpose_input=FLAGS.transpose_input)
   imagenet_eval = imagenet_input.ImageNetInput(
       is_training=False,
       data_dir=FLAGS.data_dir,
-      use_bfloat16=True,
+      use_bfloat16=False,
       transpose_input=FLAGS.transpose_input)
 
   if FLAGS.use_fast_lr:
@@ -97,7 +97,7 @@ def main(unused_argv):
         image_size=128,
         data_dir=FLAGS.data_dir_small,
         num_parallel_calls=FLAGS.num_parallel_calls,
-        use_bfloat16=True,
+        use_bfloat16=False,
         transpose_input=FLAGS.transpose_input,
         cache=True)
     imagenet_eval_small = imagenet_input.ImageNetInput(
@@ -105,7 +105,7 @@ def main(unused_argv):
         image_size=128,
         data_dir=FLAGS.data_dir_small,
         num_parallel_calls=FLAGS.num_parallel_calls,
-        use_bfloat16=True,
+        use_bfloat16=False,
         transpose_input=FLAGS.transpose_input,
         cache=True)
     imagenet_train_large = imagenet_input.ImageNetInput(
@@ -113,14 +113,14 @@ def main(unused_argv):
         image_size=288,
         data_dir=FLAGS.data_dir,
         num_parallel_calls=FLAGS.num_parallel_calls,
-        use_bfloat16=True,
+        use_bfloat16=False,
         transpose_input=FLAGS.transpose_input)
     imagenet_eval_large = imagenet_input.ImageNetInput(
         is_training=False,
         image_size=288,
         data_dir=FLAGS.data_dir,
         num_parallel_calls=FLAGS.num_parallel_calls,
-        use_bfloat16=True,
+        use_bfloat16=False,
         transpose_input=FLAGS.transpose_input)
 
   resnet_classifier = tf.contrib.tpu.TPUEstimator(
