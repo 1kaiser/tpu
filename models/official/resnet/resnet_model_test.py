@@ -71,9 +71,12 @@ def iterate_imagenet(sess):
         image_bytes = tf.reshape(image_encoded, shape=[])
         image = image_preprocessing_fn(image_bytes=image_bytes, is_training=True, image_size=224, use_bfloat16=False)
         label = tf.cast(tf.reshape(label, shape=[]), dtype=tf.int32)
-        image_result = sess.run(image)
-        label_result = sess.run(label)
-        yield label_result, image_result
+        if True:
+          yield label, image
+        else:
+          image_result = sess.run(image)
+          label_result = sess.run(label)
+          yield label_result, image_result
     results = list(body())
     labels = [x[0] for x in results]
     images = [x[1] for x in results]
@@ -162,21 +165,30 @@ def restore(sess, ckpt, var_list=None, scope=''):
 def run_next(sess, get_next, context, context_labels):
   print('Fetching...')
   labels, images = get_next(sess)
-  print(labels)
   d = {}
   print('Loading labels...')
-  load(context_labels, labels, session=sess)
+  print(load2(context_labels, labels, session=sess))
   print('Loading images...')
-  load(context, images, session=sess)
+  load2(context, images, session=sess)
   print('Loaded')
   if state.init:
+    print('Initializing...')
     sess.run(tf.global_variables_initializer())
+    print('Initialized.')
     state.init = None
   for i in range(params['train_iterations']):
     sess.run(state.train_op, d)
     result = sess.run(state.loss, d)
     print(result)
   return result
+
+def load2(variable, value, session=None, timeout_in_ms=None):
+  op = tf.assign(variable, value)
+  session = session or tf.get_default_session()
+  options = None
+  if timeout_in_ms:
+    options=config_pb2.RunOptions(timeout_in_ms=timeout_in_ms)
+  return session.run(op, options=options)
 
 def load(variable, value, session=None, timeout_in_ms=None):
   session = session or tf.get_default_session()
