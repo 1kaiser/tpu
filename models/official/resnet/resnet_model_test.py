@@ -133,25 +133,39 @@ params['beta2'] = 0.999
 params['epsilon'] = 1e-9
 #params['lr'] = 0.245
 params['lr'] = 0.000055
+params['batch_size'] = 1
+params['num_cores'] = 1
+params['image_size'] = 224
 
-def run_next(sess, logits, get_next, input_bhw3):
+def run_next(sess, get_next, context, context_labels):
+  print('Fetching...')
   img, lbl = get_next(sess)
   print(lbl)
-  d = {input_bhw3: img.reshape([-1, 224, 224, 3])}
-  labels = [lbl]
-  one_hot_labels = tf.one_hot(labels, params['num_label_classes'])
-  cross_entropy = tf.losses.softmax_cross_entropy(logits=logits, onehot_labels=one_hot_labels,
-                                                  label_smoothing=params['label_smoothing'])
-  loss = cross_entropy
-  train_op = state.optimizer.minimize(loss, global_step=tf.train.get_global_step())
-  #result = sess.run(loss, d)
+  d = {}
+  print('Loading...')
+  load(context, img.reshape([-1, 224, 224, 3]), session=sess)
+  load(context_labels, [lbl], session=sess)
+  print('Loaded')
   if state.init:
     #import pdb; pdb.set_trace()
     sess.run(tf.global_variables_initializer())
     state.init = None
-  sess.run(train_op, d)
-  result = sess.run(loss, d)
+  for i in range(10):
+    sess.run(state.train_op, d)
+    result = sess.run(state.loss, d)
+    print(result)
   return result
+
+def load(variable, value, session=None, timeout_in_ms=None):
+  session = session or tf.get_default_session()
+  ops = variable.initializer
+  vals = dict([(variable.initializer.inputs[1], value)])
+  #for x, (k, v) in zip(variables, vals.items()):
+  #  print(x.name, x.shape.as_list(), k, v.shape)
+  options = None
+  if timeout_in_ms:
+    options=config_pb2.RunOptions(timeout_in_ms=timeout_in_ms)
+  return session.run(ops, vals, options=options)
 
 class ResnetModelTest(tf.test.TestCase):
 
@@ -159,8 +173,12 @@ class ResnetModelTest(tf.test.TestCase):
     network = resnet_model.resnet_v1(resnet_depth=50,
                                      num_classes=1001,
                                      data_format='channels_last')
-    input_bhw3 = tf.placeholder(tf.float32, [1, 224, 224, 3])
-    resnet_output = network(inputs=input_bhw3, is_training=True)
+    #input_bhw3 = tf.placeholder(tf.float32, [1, 224, 224, 3])
+    context = tf.Variable(tf.zeros(shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3], name="context", dtype=tf.float32),
+                          dtype=tf.float32, shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3], trainable=False)
+    context_labels = tf.Variable([0], name="context_labels", dtype=tf.int32, shape=[params['batch_size']], trainable=False)
+
+    logits = network(inputs=context, is_training=True)
 
     sess = tf.Session(os.environ['TPU_NAME'] if 'TPU_NAME' in os.environ else None)
     lr = params['lr']
@@ -169,6 +187,11 @@ class ResnetModelTest(tf.test.TestCase):
       beta1=params["beta1"],
       beta2=params["beta2"],
       epsilon=params["epsilon"])
+    one_hot_labels = tf.one_hot(context_labels, params['num_label_classes'])
+    cross_entropy = tf.losses.softmax_cross_entropy(logits=logits, onehot_labels=one_hot_labels,
+                                                    label_smoothing=params['label_smoothing'])
+    state.loss = cross_entropy
+    state.train_op = state.optimizer.minimize(state.loss, global_step=tf.train.get_global_step())
     state.init = True
     if False:
       ckpt = tf.train.latest_checkpoint('gs://gpt-2-poetry/checkpoint/resnet_imagenet_v1_fp32_20181001')
@@ -184,9 +207,8 @@ class ResnetModelTest(tf.test.TestCase):
     #import pdb
     #pdb.set_trace()
     get_next = iterate_imagenet(sess)
-    logits = resnet_output
     while True:
-      print(run_next(sess, logits, get_next, input_bhw3))
+      print(run_next(sess, get_next, context, context_labels))
       #import pdb
       #pdb.set_trace()
     #import pdb
