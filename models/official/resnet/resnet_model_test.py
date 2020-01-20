@@ -239,8 +239,13 @@ class ResnetModelTest(tf.test.TestCase):
     #_ = sess.run(resnet_output, feed_dict={input_bhw3: np.random.randn(1, 224, 224, 3)})
     #print('TKTK', repr(_))
     get_next = iterate_imagenet(sess)
+    state.prev_time = time.time()
     while True:
       run_next(sess, get_next, context, context_labels)
+      now = time.time()
+      elapsed = now - state.prev_time
+      print('%d examples in %.2fs (%.2f examples/sec)' % (params['batch_size'], elapsed, params['batch_size'] / elapsed))
+      state.prev_time = now
     print('Done')
     import pdb
     pdb.set_trace()
