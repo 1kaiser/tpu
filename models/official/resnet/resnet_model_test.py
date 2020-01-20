@@ -245,7 +245,8 @@ class ResnetModelTest(tf.test.TestCase):
       run_next(sess, get_next, context, context_labels)
       now = time.time()
       elapsed = now - state.prev_time
-      print('%d examples in %.2fs (%.2f examples/sec)' % (params['batch_size'], elapsed, params['batch_size'] / elapsed))
+      n = params['batch_size'] * params['train_iterations']
+      print('%d examples in %.2fs (%.2f examples/sec)' % (n, elapsed, n / elapsed))
       state.prev_time = now
     print('Done')
     import pdb
