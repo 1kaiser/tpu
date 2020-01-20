@@ -27,24 +27,57 @@ filename = 'gs://cloud-tpu-test-datasets/fake_imagenet/train-00000-of-01024'
 filename = 'gs://gpt-2-poetry/data/imagenet/out/train-00000-of-01024'
 filename = 'gs://gpt-2-poetry/data/imagenet/out/validation-00000-of-00128'
 
+params = {}
+params['label_smoothing'] = 0.1
+params['num_label_classes'] = 1001
+params['beta1'] = 0.9
+params['beta2'] = 0.999
+params['epsilon'] = 1e-9
+#params['lr'] = 0.245
+params['lr'] = 0.000055
+params['batch_size'] = 1
+params['batch_size'] = 16
+params['num_cores'] = 1
+params['image_size'] = 224
+#params['prefetch_mb'] = 2048,  # Amount of data to prefetch (megabytes), 0 = disable prefetching.
+params['prefetch_mb'] = 128  # Amount of data to prefetch (megabytes), 0 = disable prefetching.
+params['buffer_mb'] = 16  # Read buffer size (megabytes).
+params['repeat'] = False
+params['train_iterations'] = 4
+
 def iterate_imagenet(sess):
   image_preprocessing_fn = resnet_preprocessing.preprocess_image
-  ds = tf.data.TFRecordDataset(filename)
+  dset = tf.data.TFRecordDataset(filename, buffer_size=(params['buffer_mb']<<20))
   keys_to_features = {'image/encoded': tf.FixedLenFeature((), tf.string, ''), 'image/class/label': tf.FixedLenFeature([], tf.int64, -1), }
   def parse(value):
     return tf.parse_single_example(value, keys_to_features)
-  result = ds.map(parse)
-  tf_iterator = tf.data.Iterator.from_structure(result.output_types, result.output_shapes)
-  init = tf_iterator.make_initializer(result)
+  dset = dset.map(parse)
+  tfr_shape = [params['batch_size'], params['image_size'], params['image_size'], 3]
+  bytes_per_item = np.prod(tfr_shape) * np.dtype(np.float32).itemsize
+  #if shuffle_mb > 0:
+    #dset = dset.shuffle(((shuffle_mb << 20) - 1) // bytes_per_item + 1)
+  if params['repeat']:
+    dset = dset.repeat()
+  if params['prefetch_mb'] > 0:
+    dset = dset.prefetch(((params['prefetch_mb'] << 20) - 1) // bytes_per_item + 1)
+  dset = dset.batch(params['batch_size'])
+  tf_iterator = tf.data.Iterator.from_structure(dset.output_types, dset.output_shapes)
+  init = tf_iterator.make_initializer(dset)
   sess.run(init)
   def get_next(sess):
     parsed = sess.run(tf_iterator.get_next())
-    image_bytes = tf.reshape(parsed['image/encoded'], shape=[])
-    image = image_preprocessing_fn(image_bytes=image_bytes, is_training=True, image_size=224, use_bfloat16=False)
-    label = tf.cast(tf.reshape(parsed['image/class/label'], shape=[]), dtype=tf.int32)
-    image_result = sess.run(image)
-    label_result = sess.run(label)
-    return image_result, label_result
+    def body():
+      for label, image_encoded in zip(parsed['image/class/label'], parsed['image/encoded']):
+        image_bytes = tf.reshape(image_encoded, shape=[])
+        image = image_preprocessing_fn(image_bytes=image_bytes, is_training=True, image_size=224, use_bfloat16=False)
+        label = tf.cast(tf.reshape(label, shape=[]), dtype=tf.int32)
+        image_result = sess.run(image)
+        label_result = sess.run(label)
+        yield label_result, image_result
+    results = list(body())
+    labels = [x[0] for x in results]
+    images = [x[1] for x in results]
+    return labels, images
   return get_next
 
 from tensorflow.python import pywrap_tensorflow
@@ -125,32 +158,21 @@ def restore(sess, ckpt, var_list=None, scope=''):
       value = reader.get_tensor(name)
       assign_values([v], [value], session=sess)
 
-params = {}
-params['label_smoothing'] = 0.1
-params['num_label_classes'] = 1001
-params['beta1'] = 0.9
-params['beta2'] = 0.999
-params['epsilon'] = 1e-9
-#params['lr'] = 0.245
-params['lr'] = 0.000055
-params['batch_size'] = 1
-params['num_cores'] = 1
-params['image_size'] = 224
 
 def run_next(sess, get_next, context, context_labels):
   print('Fetching...')
-  img, lbl = get_next(sess)
-  print(lbl)
+  labels, images = get_next(sess)
+  print(labels)
   d = {}
-  print('Loading...')
-  load(context, img.reshape([-1, 224, 224, 3]), session=sess)
-  load(context_labels, [lbl], session=sess)
+  print('Loading labels...')
+  load(context_labels, labels, session=sess)
+  print('Loading images...')
+  load(context, images, session=sess)
   print('Loaded')
   if state.init:
-    #import pdb; pdb.set_trace()
     sess.run(tf.global_variables_initializer())
     state.init = None
-  for i in range(10):
+  for i in range(params['train_iterations']):
     sess.run(state.train_op, d)
     result = sess.run(state.loss, d)
     print(result)
@@ -176,7 +198,7 @@ class ResnetModelTest(tf.test.TestCase):
     #input_bhw3 = tf.placeholder(tf.float32, [1, 224, 224, 3])
     context = tf.Variable(tf.zeros(shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3], name="context", dtype=tf.float32),
                           dtype=tf.float32, shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3], trainable=False)
-    context_labels = tf.Variable([0], name="context_labels", dtype=tf.int32, shape=[params['batch_size']], trainable=False)
+    context_labels = tf.Variable([0] * params['batch_size'], name="context_labels", dtype=tf.int32, shape=[params['batch_size']], trainable=False)
 
     logits = network(inputs=context, is_training=True)
 
@@ -204,15 +226,12 @@ class ResnetModelTest(tf.test.TestCase):
       #print('Restored.')
     #_ = sess.run(resnet_output, feed_dict={input_bhw3: np.random.randn(1, 224, 224, 3)})
     #print('TKTK', repr(_))
-    #import pdb
-    #pdb.set_trace()
     get_next = iterate_imagenet(sess)
     while True:
       print(run_next(sess, get_next, context, context_labels))
-      #import pdb
-      #pdb.set_trace()
-    #import pdb
-    #pdb.set_trace()
+    print('Done')
+    import pdb
+    pdb.set_trace()
 
 if __name__ == '__main__':
   tf.test.main()
