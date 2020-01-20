@@ -240,7 +240,7 @@ class ResnetModelTest(tf.test.TestCase):
     #print('TKTK', repr(_))
     get_next = iterate_imagenet(sess)
     while True:
-      print(run_next(sess, get_next, context, context_labels))
+      run_next(sess, get_next, context, context_labels)
     print('Done')
     import pdb
     pdb.set_trace()
