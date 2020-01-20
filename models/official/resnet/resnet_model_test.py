@@ -128,6 +128,11 @@ def restore(sess, ckpt, var_list=None, scope=''):
 params = {}
 params['label_smoothing'] = 0.1
 params['num_label_classes'] = 1001
+params['beta1'] = 0.9
+params['beta2'] = 0.999
+params['epsilon'] = 1e-9
+#params['lr'] = 0.245
+params['lr'] = 0.000055
 
 def run_next(sess, logits, get_next, input_bhw3):
   img, lbl = get_next(sess)
@@ -137,7 +142,15 @@ def run_next(sess, logits, get_next, input_bhw3):
   one_hot_labels = tf.one_hot(labels, params['num_label_classes'])
   cross_entropy = tf.losses.softmax_cross_entropy(logits=logits, onehot_labels=one_hot_labels,
                                                   label_smoothing=params['label_smoothing'])
-  result = sess.run(cross_entropy, d)
+  loss = cross_entropy
+  train_op = state.optimizer.minimize(loss, global_step=tf.train.get_global_step())
+  #result = sess.run(loss, d)
+  if state.init:
+    #import pdb; pdb.set_trace()
+    sess.run(tf.global_variables_initializer())
+    state.init = None
+  sess.run(train_op, d)
+  result = sess.run(loss, d)
   return result
 
 class ResnetModelTest(tf.test.TestCase):
@@ -150,7 +163,13 @@ class ResnetModelTest(tf.test.TestCase):
     resnet_output = network(inputs=input_bhw3, is_training=True)
 
     sess = tf.Session(os.environ['TPU_NAME'] if 'TPU_NAME' in os.environ else None)
-    sess.run(tf.global_variables_initializer())
+    lr = params['lr']
+    state.optimizer = tf.train.AdamOptimizer(
+      learning_rate=lr,
+      beta1=params["beta1"],
+      beta2=params["beta2"],
+      epsilon=params["epsilon"])
+    state.init = True
     if False:
       ckpt = tf.train.latest_checkpoint('gs://gpt-2-poetry/checkpoint/resnet_imagenet_v1_fp32_20181001')
       #ckpt = tf.train.latest_checkpoint('./resnet_imagenet_v1_fp32_20181001')
@@ -160,8 +179,8 @@ class ResnetModelTest(tf.test.TestCase):
       #print('Restoring...', ckpt)
       #saver.restore(sess, ckpt)
       #print('Restored.')
-    _ = sess.run(resnet_output, feed_dict={input_bhw3: np.random.randn(1, 224, 224, 3)})
-    print('TKTK', repr(_))
+    #_ = sess.run(resnet_output, feed_dict={input_bhw3: np.random.randn(1, 224, 224, 3)})
+    #print('TKTK', repr(_))
     #import pdb
     #pdb.set_trace()
     get_next = iterate_imagenet(sess)
