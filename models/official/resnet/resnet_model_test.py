@@ -48,7 +48,7 @@ params['image_size'] = 224
 #params['prefetch_mb'] = 2048,  # Amount of data to prefetch (megabytes), 0 = disable prefetching.
 params['prefetch_mb'] = 128  # Amount of data to prefetch (megabytes), 0 = disable prefetching.
 params['buffer_mb'] = 16  # Read buffer size (megabytes).
-params['repeat'] = False
+params['repeat'] = bool(os.environ['REPEAT']) if 'REPEAT' in os.environ else False
 params['train_iterations'] = int(os.environ['TRAIN_ITERATIONS']) if 'TRAIN_ITERATIONS' in os.environ else 4
 
 def iterate_imagenet(sess):
