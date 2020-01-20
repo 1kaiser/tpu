@@ -23,6 +23,12 @@ import tensorflow.compat.v1 as tf
 from official.resnet import resnet_model
 import resnet_preprocessing
 
+from tensorflow.python import pywrap_tensorflow
+import os
+
+from tensorflow.core.protobuf import config_pb2
+import tqdm
+
 filename = 'gs://cloud-tpu-test-datasets/fake_imagenet/train-00000-of-01024'
 filename = 'gs://gpt-2-poetry/data/imagenet/out/train-00000-of-01024'
 filename = 'gs://gpt-2-poetry/data/imagenet/out/validation-00000-of-00128'
@@ -34,16 +40,15 @@ params['beta1'] = 0.9
 params['beta2'] = 0.999
 params['epsilon'] = 1e-9
 #params['lr'] = 0.245
-params['lr'] = 0.000055
-params['batch_size'] = 1
-params['batch_size'] = 16
+params['lr'] = float(os.environ['LR']) if 'LR' in os.environ else 0.000055
+params['batch_size'] = int(os.environ['BATCH_SIZE']) if 'BATCH_SIZE' in os.environ else 16
 params['num_cores'] = 1
 params['image_size'] = 224
 #params['prefetch_mb'] = 2048,  # Amount of data to prefetch (megabytes), 0 = disable prefetching.
 params['prefetch_mb'] = 128  # Amount of data to prefetch (megabytes), 0 = disable prefetching.
 params['buffer_mb'] = 16  # Read buffer size (megabytes).
 params['repeat'] = False
-params['train_iterations'] = 4
+params['train_iterations'] = int(os.environ['TRAIN_ITERATIONS']) if 'TRAIN_ITERATIONS' in os.environ else 4
 
 def iterate_imagenet(sess):
   image_preprocessing_fn = resnet_preprocessing.preprocess_image
@@ -82,12 +87,6 @@ def iterate_imagenet(sess):
     images = [x[1] for x in results]
     return labels, images
   return get_next
-
-from tensorflow.python import pywrap_tensorflow
-import os
-
-from tensorflow.core.protobuf import config_pb2
-import tqdm
 
 class Namespace(object):
   pass
