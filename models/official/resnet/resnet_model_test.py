@@ -149,7 +149,7 @@ class ResnetModelTest(tf.test.TestCase):
     input_bhw3 = tf.placeholder(tf.float32, [1, 224, 224, 3])
     resnet_output = network(inputs=input_bhw3, is_training=True)
 
-    sess = tf.Session('grpc://0.tcp.ngrok.io:15500')
+    sess = tf.Session(os.environ['TPU_NAME'] if 'TPU_NAME' in os.environ else None)
     sess.run(tf.global_variables_initializer())
     if False:
       ckpt = tf.train.latest_checkpoint('gs://gpt-2-poetry/checkpoint/resnet_imagenet_v1_fp32_20181001')
