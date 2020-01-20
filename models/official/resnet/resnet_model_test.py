@@ -69,8 +69,9 @@ def iterate_imagenet(sess):
   tf_iterator = tf.data.Iterator.from_structure(dset.output_types, dset.output_shapes)
   init = tf_iterator.make_initializer(dset)
   sess.run(init)
+  tf_iterator_next = tf_iterator.get_next()
   def get_next(sess):
-    parsed = sess.run(tf_iterator.get_next())
+    parsed = sess.run(tf_iterator_next)
     def body():
       for label, image_encoded in zip(parsed['image/class/label'], parsed['image/encoded']):
         image_bytes = tf.reshape(image_encoded, shape=[])
