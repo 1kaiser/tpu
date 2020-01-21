@@ -307,7 +307,6 @@ def main():
   options = config_pb2.RunOptions(report_tensor_allocations_upon_oom=(not args.no_report_tensor_allocations_upon_oom))
   target = os.environ['TPU_NAME'] if 'TPU_NAME' in os.environ else None
   sess = tf.Session(target=target, config=config)
-  coord = tf.train.Coordinator()
   state.cores = sess.list_devices()[2:10]
   i = params['shard']
   core = state.cores[i].name if i >= 0 else None
@@ -322,6 +321,7 @@ def main():
     self.image_label_placeholder = tf.placeholder(dtype=tf.int32, shape=(None), name='image_label')
     self.batch_size_placeholder = tf.placeholder(tf.int32, name='batch_size')
 
+    coord = tf.train.Coordinator()
     reader = DataGenerator(coord, load_data=data_loader, dtypes=[img_dtype, tf.int32], shapes=[(params['image_size'] * params['image_size'] * params['image_channels'],), ()],
         placeholders=[self.image_placeholder, self.image_label_placeholder],
         max_queue_size=4*params['batch_size'])
