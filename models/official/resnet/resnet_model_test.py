@@ -56,6 +56,8 @@ params['repeat'] = bool(os.environ['REPEAT']) if 'REPEAT' in os.environ else Fal
 params['train_iterations'] = int(os.environ['TRAIN_ITERATIONS']) if 'TRAIN_ITERATIONS' in os.environ else 4
 params['shard'] = int(os.environ['SHARD']) if 'SHARD' in os.environ else -1
 params['precision'] = os.environ['PRECISION'] if 'PRECISION' in os.environ else 'float32'
+params['colocate_gradients_with_ops'] = bool(os.environ['COLOCATE_GRADIENTS']) if 'COLOCATE_GRADIENTS' in os.environ else True
+params['ungate_gradients'] = bool(os.environ['UNGATE_GRADIENTS']) if 'UNGATE_GRADIENTS' in os.environ else False
 
 use_memory_saving_gradients = 'MEMORY_SAVING_GRADIENTS' in os.environ
 
@@ -301,8 +303,8 @@ def shard(sess, i):
   def should_train_variable(v):
     return True
   train_vars = [v for v in all_vars if should_train_variable(v)]
-  colocate_gradients_with_ops = True
-  ungate_gradients = False
+  colocate_gradients_with_ops = params['colocate_gradients_with_ops']
+  ungate_gradients = params['ungate_gradients']
   gate_gradients=None
   if ungate_gradients:
     gate_gradients=tf.train.Optimizer.GATE_NONE
