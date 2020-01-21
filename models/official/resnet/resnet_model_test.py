@@ -525,8 +525,9 @@ def shard(sess, i, input_batch, device):
             learning_rate=learning_rate,
             momentum=params['momentum'],
             use_nesterov=True)
-      state.lr = learning_rate
-      state.optimizer = optimizer
+
+    state.lr = learning_rate
+    state.optimizer = optimizer
 
     one_hot_labels = tf.one_hot(context_labels, params['num_label_classes'])
     cross_entropy = tf.losses.softmax_cross_entropy(logits=logits, onehot_labels=one_hot_labels,
