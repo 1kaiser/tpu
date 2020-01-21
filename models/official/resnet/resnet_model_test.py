@@ -480,6 +480,8 @@ def shard(sess, i, input_batch, device):
       network = resnet_model.resnet_v1(resnet_depth=50,
                                        num_classes=1001,
                                        data_format='channels_last')
+      state.mult_lr = tf.Variable(1.0, dtype=tf.float32, shape=[], trainable=False)
+      state.set_lr = tf.Variable(-1.0, dtype=tf.float32, shape=[], trainable=False)
       context = tf.Variable(
         tf.zeros(shape=shape,
                  name="context", dtype=tf.float32),
@@ -504,9 +506,12 @@ def shard(sess, i, input_batch, device):
     state.steps_per_epoch = steps_per_epoch = params['num_train_images'] / params['train_batch_size']
     state.current_epoch = current_epoch = (tf.cast(global_step, tf.float32) / steps_per_epoch)
 
+    #learning_rate = params['lr']
+    learning_rate = learning_rate_schedule(params, current_epoch)
+    learning_rate = learning_rate * state.mult_lr
+    learning_rate = tf.where(state.set_lr > 0.0, state.set_lr, learning_rate)
+
     if params['use_adam']:
-      #learning_rate = params['lr']
-      learning_rate = learning_rate_schedule(params, current_epoch)
       #import pdb; pdb.set_trace()
       optimizer = tf.train.AdamOptimizer(
         learning_rate=learning_rate,
