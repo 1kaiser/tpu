@@ -615,6 +615,8 @@ def shard(sess, i, input_batch, device):
     #import pdb; pdb.set_trace()
     cross_entropy = tf.losses.softmax_cross_entropy(logits=logits, onehot_labels=one_hot_labels,
                                                     label_smoothing=params['label_smoothing'])
+    state.cross_entropy = cross_entropy
+
     def metric_fn(labels, logits):
       """Evaluation metric function. Evaluates accuracy.
 
@@ -642,6 +644,8 @@ def shard(sess, i, input_batch, device):
       return {
           'top_1_accuracy': top_1_accuracy,
           'top_5_accuracy': top_5_accuracy,
+          'cross_entropy': state.cross_entropy,
+          'loss': state.loss,
       }
 
     state.labels = context_labels
