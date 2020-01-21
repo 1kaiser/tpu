@@ -320,7 +320,7 @@ def main():
 
     reader = DataGenerator(coord, load_data=data_loader, dtypes=[img_dtype, tf.int32], shapes=[(params['image_size'] * params['image_size'] * params['image_channels'],), ()],
         placeholders=[self.image_placeholder, self.image_label_placeholder],
-        max_queue_size=2*params['batch_size'])
+        max_queue_size=4*params['batch_size'])
     input_batch = reader.dequeue(params['batch_size'])
     #sess.run(reader.enqueue, dict(zip(reader.placeholders, data_loader(sess))))
     threads = reader.start_threads(sess, n_threads=1)
