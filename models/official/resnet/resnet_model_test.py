@@ -184,10 +184,18 @@ def run_next(sess, get_next, context, context_labels):
     sess.run(tf.global_variables_initializer())
     print('Initialized.')
     state.init = None
+  result = sess.run(state.loss, d)
+  print('start loss', result)
+  start_time = time.time()
+  n = params['batch_size']
+  examples = 0
   for i in range(params['train_iterations']):
     sess.run(state.train_op, d)
-    result = sess.run(state.loss, d)
-    print(result)
+    examples += n
+  elapsed = time.time() - start_time()
+  print('%d examples in %.2fs (%.2f ex/sec)' % (examples, elapsed, examples / elapsed))
+  result = sess.run(state.loss, d)
+  print('end loss', result)
   return result
 
 def load2(variable, value, session=None, timeout_in_ms=None):
