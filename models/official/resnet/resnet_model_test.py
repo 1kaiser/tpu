@@ -22,6 +22,7 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 from official.resnet import resnet_model
 import resnet_preprocessing
+import threading
 
 from tensorflow.python import pywrap_tensorflow
 import os
@@ -202,59 +203,89 @@ def load(variable, value, session=None, timeout_in_ms=None):
     options=config_pb2.RunOptions(timeout_in_ms=timeout_in_ms)
   return session.run(ops, vals, options=options)
 
+args = Namespace()
+args.allow_growth = False
+args.allow_soft_placement = True
+args.disable_layout_optimizer = False
+args.no_report_tensor_allocations_upon_oom = True
+
+def main():
+  timeout = 600000
+  config = config_pb2.ConfigProto(operation_timeout_in_ms=timeout)
+  config.allow_soft_placement = False
+  if args.allow_growth:
+    config.gpu_options.allow_growth = True
+  if args.allow_soft_placement:
+    config.allow_soft_placement = True
+  if args.disable_layout_optimizer:
+    config.graph_options.rewrite_options.layout_optimizer = rewriter_config_pb2.RewriterConfig.OFF
+  options = config_pb2.RunOptions(report_tensor_allocations_upon_oom=(not args.no_report_tensor_allocations_upon_oom))
+  target = os.environ['TPU_NAME'] if 'TPU_NAME' in os.environ else None
+  sess = tf.Session(target=target, config=config)
+  state.cores = sess.list_devices()[2:10]
+  with tf.device(state.cores[0].name):
+    shard(sess, 0)
+
+def shard(sess, i):
+  network = resnet_model.resnet_v1(resnet_depth=50,
+                                   num_classes=1001,
+                                   data_format='channels_last')
+  # input_bhw3 = tf.placeholder(tf.float32, [1, 224, 224, 3])
+  context = tf.Variable(
+    tf.zeros(shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3],
+             name="context", dtype=tf.float32),
+    dtype=tf.float32,
+    shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3], trainable=False)
+  context_labels = tf.Variable([0] * params['batch_size'], name="context_labels", dtype=tf.int32,
+                               shape=[params['batch_size']], trainable=False)
+
+  logits = network(inputs=context, is_training=True)
+
+  lr = params['lr']
+  state.optimizer = tf.train.AdamOptimizer(
+    learning_rate=lr,
+    beta1=params["beta1"],
+    beta2=params["beta2"],
+    epsilon=params["epsilon"])
+  one_hot_labels = tf.one_hot(context_labels, params['num_label_classes'])
+  cross_entropy = tf.losses.softmax_cross_entropy(logits=logits, onehot_labels=one_hot_labels,
+                                                  label_smoothing=params['label_smoothing'])
+  state.loss = cross_entropy
+  state.train_op = state.optimizer.minimize(state.loss, global_step=tf.train.get_global_step())
+  state.init = True
+  if False:
+    ckpt = tf.train.latest_checkpoint('gs://gpt-2-poetry/checkpoint/resnet_imagenet_v1_fp32_20181001')
+    # ckpt = tf.train.latest_checkpoint('./resnet_imagenet_v1_fp32_20181001')
+    # restore(sess, ckpt, scope='resnet_model')
+    load_snapshot(ckpt, sess, scope='resnet_model')
+    # saver = tf.train.Saver()
+    # print('Restoring...', ckpt)
+    # saver.restore(sess, ckpt)
+    # print('Restored.')
+  # _ = sess.run(resnet_output, feed_dict={input_bhw3: np.random.randn(1, 224, 224, 3)})
+  # print('TKTK', repr(_))
+  get_next = iterate_imagenet(sess)
+  state.start_time = time.time()
+  state.prev_time = time.time()
+  state.counter = 0
+  while True:
+    run_next(sess, get_next, context, context_labels)
+    now = time.time()
+    elapsed = now - state.prev_time
+    total = now - state.start_time
+    n = params['batch_size'] * params['train_iterations']
+    state.counter += n
+    print('[%.2fs | %d] %d examples in %.2fs (%.2f examples/sec)' % (total, state.counter, n, elapsed, n / elapsed))
+    state.prev_time = now
+  print('Done')
+  import pdb
+  pdb.set_trace()
+
+
 class ResnetModelTest(tf.test.TestCase):
 
   def test_load_resnet18(self):
-    network = resnet_model.resnet_v1(resnet_depth=50,
-                                     num_classes=1001,
-                                     data_format='channels_last')
-    #input_bhw3 = tf.placeholder(tf.float32, [1, 224, 224, 3])
-    context = tf.Variable(tf.zeros(shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3], name="context", dtype=tf.float32),
-                          dtype=tf.float32, shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3], trainable=False)
-    context_labels = tf.Variable([0] * params['batch_size'], name="context_labels", dtype=tf.int32, shape=[params['batch_size']], trainable=False)
-
-    logits = network(inputs=context, is_training=True)
-
-    sess = tf.Session(os.environ['TPU_NAME'] if 'TPU_NAME' in os.environ else None)
-    lr = params['lr']
-    state.optimizer = tf.train.AdamOptimizer(
-      learning_rate=lr,
-      beta1=params["beta1"],
-      beta2=params["beta2"],
-      epsilon=params["epsilon"])
-    one_hot_labels = tf.one_hot(context_labels, params['num_label_classes'])
-    cross_entropy = tf.losses.softmax_cross_entropy(logits=logits, onehot_labels=one_hot_labels,
-                                                    label_smoothing=params['label_smoothing'])
-    state.loss = cross_entropy
-    state.train_op = state.optimizer.minimize(state.loss, global_step=tf.train.get_global_step())
-    state.init = True
-    if False:
-      ckpt = tf.train.latest_checkpoint('gs://gpt-2-poetry/checkpoint/resnet_imagenet_v1_fp32_20181001')
-      #ckpt = tf.train.latest_checkpoint('./resnet_imagenet_v1_fp32_20181001')
-      #restore(sess, ckpt, scope='resnet_model')
-      load_snapshot(ckpt, sess, scope='resnet_model')
-      #saver = tf.train.Saver()
-      #print('Restoring...', ckpt)
-      #saver.restore(sess, ckpt)
-      #print('Restored.')
-    #_ = sess.run(resnet_output, feed_dict={input_bhw3: np.random.randn(1, 224, 224, 3)})
-    #print('TKTK', repr(_))
-    get_next = iterate_imagenet(sess)
-    state.start_time = time.time()
-    state.prev_time = time.time()
-    state.counter = 0
-    while True:
-      run_next(sess, get_next, context, context_labels)
-      now = time.time()
-      elapsed = now - state.prev_time
-      total = now - state.start_time
-      n = params['batch_size'] * params['train_iterations']
-      state.counter += n
-      print('[%.2fs | %d] %d examples in %.2fs (%.2f examples/sec)' % (total, state.counter, n, elapsed, n / elapsed))
-      state.prev_time = now
-    print('Done')
-    import pdb
-    pdb.set_trace()
+    main()
 
 if __name__ == '__main__':
   tf.test.main()
