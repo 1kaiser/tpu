@@ -40,8 +40,7 @@ filename = 'gs://gpt-2-poetry/data/imagenet/out/train-00000-of-01024'
 filename = 'gs://gpt-2-poetry/data/imagenet/out/validation-00000-of-00128'
 
 params = {}
-#params['data_dir'] = 'gs://gpt-2-poetry/data/imagenet/out'
-params['data_dir'] = 'gs://cloud-tpu-test-datasets/fake_imagenet'
+params['data_dir'] = 'gs://gpt-2-poetry/data/imagenet/out' if 'REAL_DATA' in os.environ else 'gs://cloud-tpu-test-datasets/fake_imagenet'
 params['label_smoothing'] = 0.1
 params['num_label_classes'] = 1001
 params['beta1'] = 0.9
