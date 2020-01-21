@@ -617,42 +617,6 @@ def shard(sess, i, input_batch, device):
                                                     label_smoothing=params['label_smoothing'])
     state.cross_entropy = cross_entropy
 
-    def metric_fn(labels, logits):
-      """Evaluation metric function. Evaluates accuracy.
-
-      This function is executed on the CPU and should not directly reference
-      any Tensors in the rest of the `model_fn`. To pass Tensors from the model
-      to the `metric_fn`, provide as part of the `eval_metrics`. See
-      https://www.tensorflow.org/api_docs/python/tf/estimator/tpu/TPUEstimatorSpec
-      for more information.
-
-      Arguments should match the list of `Tensor` objects passed as the second
-      element in the tuple passed to `eval_metrics`.
-
-      Args:
-        labels: `Tensor` with shape `[batch]`.
-        logits: `Tensor` with shape `[batch, num_classes]`.
-
-      Returns:
-        A dict of the metrics to return from evaluation.
-      """
-      predictions = tf.argmax(logits, axis=1)
-      top_1_accuracy = tf.metrics.accuracy(labels, predictions)
-      in_top_5 = tf.cast(tf.nn.in_top_k(logits, labels, 5), tf.float32)
-      top_5_accuracy = tf.metrics.mean(in_top_5)
-
-      return {
-          'top_1_accuracy': top_1_accuracy,
-          'top_5_accuracy': top_5_accuracy,
-          'cross_entropy': state.cross_entropy,
-          'loss': state.loss,
-      }
-
-    state.labels = context_labels
-    state.logits = logits
-    state.metric_fn = metric_fn
-    state.eval_op = metric_fn(context_labels, logits)
-
   path = scope
   if prefix is not None:
     path = prefix + '/' + path
@@ -672,6 +636,42 @@ def shard(sess, i, input_batch, device):
         for v in train_vars
         if 'batch_normalization' not in v.name
     ])
+
+  def metric_fn(labels, logits):
+    """Evaluation metric function. Evaluates accuracy.
+
+    This function is executed on the CPU and should not directly reference
+    any Tensors in the rest of the `model_fn`. To pass Tensors from the model
+    to the `metric_fn`, provide as part of the `eval_metrics`. See
+    https://www.tensorflow.org/api_docs/python/tf/estimator/tpu/TPUEstimatorSpec
+    for more information.
+
+    Arguments should match the list of `Tensor` objects passed as the second
+    element in the tuple passed to `eval_metrics`.
+
+    Args:
+      labels: `Tensor` with shape `[batch]`.
+      logits: `Tensor` with shape `[batch, num_classes]`.
+
+    Returns:
+      A dict of the metrics to return from evaluation.
+    """
+    predictions = tf.argmax(logits, axis=1)
+    top_1_accuracy = tf.metrics.accuracy(labels, predictions)
+    in_top_5 = tf.cast(tf.nn.in_top_k(logits, labels, 5), tf.float32)
+    top_5_accuracy = tf.metrics.mean(in_top_5)
+
+    return {
+        'top_1_accuracy': top_1_accuracy,
+        'top_5_accuracy': top_5_accuracy,
+        'cross_entropy': state.cross_entropy,
+        'loss': state.loss,
+    }
+
+  state.labels = context_labels
+  state.logits = logits
+  state.metric_fn = metric_fn
+  state.eval_op = metric_fn(context_labels, logits)
 
   colocate_gradients_with_ops = params['colocate_gradients_with_ops']
   gate_gradients=tf.train.Optimizer.GATE_OP
