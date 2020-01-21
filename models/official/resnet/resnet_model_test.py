@@ -60,6 +60,15 @@ params['shard'] = int(os.environ['SHARD']) if 'SHARD' in os.environ else -1
 params['precision'] = os.environ['PRECISION'] if 'PRECISION' in os.environ else 'float32'
 params['colocate_gradients_with_ops'] = bool(os.environ['COLOCATE_GRADIENTS']) if 'COLOCATE_GRADIENTS' in os.environ else True
 params['ungate_gradients'] = bool(os.environ['UNGATE_GRADIENTS']) if 'UNGATE_GRADIENTS' in os.environ else False
+params['num_train_images'] = 1281167
+params['train_batch_size'] = params['batch_size']
+params['eval_batch_size'] = params['batch_size']
+import math
+params['train_steps'] = math.ceil(32768*2983/params['train_batch_size'])
+params['momentum'] = 0.9
+params['weight_decay'] = 0.0001
+params['enable_lars'] = False
+params['base_learning_rate'] = 0.1
 
 from pprint import pprint
 pprint(params)
@@ -278,6 +287,49 @@ MEAN_RGB = [0.485 * 255, 0.456 * 255, 0.406 * 255]
 STDDEV_RGB = [0.229 * 255, 0.224 * 255, 0.225 * 255]
 
 
+def get_lr_schedule(train_steps, num_train_images, train_batch_size):
+  """learning rate schedule."""
+  steps_per_epoch = np.floor(num_train_images / train_batch_size)
+  train_epochs = train_steps / steps_per_epoch
+  return [  # (multiplier, epoch to start) tuples
+      (1.0, np.floor(5 / 90 * train_epochs)),
+      (0.1, np.floor(30 / 90 * train_epochs)),
+      (0.01, np.floor(60 / 90 * train_epochs)),
+      (0.001, np.floor(80 / 90 * train_epochs))
+  ]
+
+
+def learning_rate_schedule(params, current_epoch):
+  """Handles linear scaling rule, gradual warmup, and LR decay.
+
+  The learning rate starts at 0, then it increases linearly per step.
+  After 5 epochs we reach the base learning rate (scaled to account
+    for batch size).
+  After 30, 60 and 80 epochs the learning rate is divided by 10.
+  After 90 epochs training stops and the LR is set to 0. This ensures
+    that we train for exactly 90 epochs for reproducibility.
+
+  Args:
+    params: Python dict containing parameters for this run.
+    current_epoch: `Tensor` for current epoch.
+
+  Returns:
+    A scaled `Tensor` for current learning rate.
+  """
+  scaled_lr = params['base_learning_rate'] * (
+      params['train_batch_size'] / 256.0)
+  lr_schedule = get_lr_schedule(
+      train_steps=params['train_steps'],
+      num_train_images=params['num_train_images'],
+      train_batch_size=params['train_batch_size'])
+  decay_rate = (scaled_lr * lr_schedule[0][0] *
+                current_epoch / lr_schedule[0][1])
+  for mult, start_epoch in lr_schedule:
+    decay_rate = tf.where(current_epoch < start_epoch,
+                          decay_rate, scaled_lr * mult)
+  return decay_rate
+
+
 def shard(sess, i):
   scope = 'resnet_model'
   prefix = 'core%04d' % i
@@ -329,12 +381,31 @@ def shard(sess, i):
 
       logits = network(inputs=features, is_training=True)
 
-    lr = params['lr']
-    state.optimizer = tf.train.AdamOptimizer(
-      learning_rate=lr,
-      beta1=params["beta1"],
-      beta2=params["beta2"],
-      epsilon=params["epsilon"])
+    if False:
+      lr = params['lr']
+      #import pdb; pdb.set_trace()
+      optimizer = tf.train.AdamOptimizer(
+        learning_rate=lr,
+        beta1=params["beta1"],
+        beta2=params["beta2"],
+        epsilon=params["epsilon"])
+    else:
+      # Compute the current epoch and associated learning rate from global_step.
+      global_step = tf.train.get_or_create_global_step()
+      steps_per_epoch = params['num_train_images'] / params['train_batch_size']
+      current_epoch = (tf.cast(global_step, tf.float32) / steps_per_epoch)
+      # LARS is a large batch optimizer. LARS enables higher accuracy at batch 16K
+      # and larger batch sizes.
+      if params['enable_lars']:
+        learning_rate = 0.0
+        optimizer = lars_util.init_lars_optimizer(current_epoch, params)
+      else:
+        learning_rate = learning_rate_schedule(params, current_epoch)
+        optimizer = tf.train.MomentumOptimizer(
+            learning_rate=learning_rate,
+            momentum=params['momentum'],
+            use_nesterov=True)
+
     one_hot_labels = tf.one_hot(context_labels, params['num_label_classes'])
     cross_entropy = tf.losses.softmax_cross_entropy(logits=logits, onehot_labels=one_hot_labels,
                                                     label_smoothing=params['label_smoothing'])
@@ -360,8 +431,8 @@ def shard(sess, i):
   grads = list(zip(grads, train_vars))
   grads = [(g, v) if g is not None else (tf.zeros_like(v), v) for g, v in grads]  # replace disconnected gradients with zeros
   global_step = tf.train.get_global_step()
-  #state.train_op = state.optimizer.minimize(state.loss, global_step=global_step)
-  state.train_op = state.optimizer.apply_gradients(grads, global_step=global_step)
+  #state.train_op = optimizer.minimize(state.loss, global_step=global_step)
+  state.train_op = optimizer.apply_gradients(grads, global_step=global_step)
   state.init = True
   if False:
     ckpt = tf.train.latest_checkpoint('gs://gpt-2-poetry/checkpoint/resnet_imagenet_v1_fp32_20181001')
