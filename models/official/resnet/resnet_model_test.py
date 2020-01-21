@@ -232,7 +232,8 @@ def run_next(sess, get_next, load_input, device):
     print('Loaded')
     if state.init:
       print('Initializing...')
-      sess.run(tf.global_variables_initializer())
+      #sess.run(tf.global_variables_initializer())
+      sess.run(state.init)
       #print('Initializing loss...')
       #sess.run(state.loss, d)
       #print('Initializing train_op...')
@@ -585,7 +586,6 @@ def shard(sess, i, input_batch, device):
       #state.train_op = optimizer.apply_gradients(grads, global_step=global_step)
   state.fit_op = tf.tuple([state.loss], control_inputs=[state.train_op])
 
-  state.init = True
   if False:
     ckpt = tf.train.latest_checkpoint('gs://gpt-2-poetry/checkpoint/resnet_imagenet_v1_fp32_20181001')
     # ckpt = tf.train.latest_checkpoint('./resnet_imagenet_v1_fp32_20181001')
@@ -611,6 +611,7 @@ def shard(sess, i, input_batch, device):
   load_context_labels = tf.assign(context_labels, labels)
   load_context = tf.assign(context, images)
   load_input = tf.group([load_context, load_context_labels])
+  state.init = tf.global_variables_initializer())
   while True:
     v_losses = run_next(sess, lambda sess: get_next, load_input, device)
     now = time.time()
