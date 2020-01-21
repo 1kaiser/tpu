@@ -174,10 +174,69 @@ def assign_values(variables, values, session=None, timeout_in_ms=6000000):
 
 import re
 
+def truncate_value(variable, value, reshape=True):
+  return value
+
 def variable_name(variable):
   if re.match(r'core[0-9]+/', variable.name):
     return variable.name.split('/', 1)[-1]
   return variable.name
+
+def load_variables(ckpt, session=None, var_list=None, reshape=False):
+  session = session or tf.get_default_session()
+  vs = var_list or tf.trainable_variables()
+  with h5py.File(ckpt, "r") as f:
+    for variables in tqdm.tqdm(list(split_by_params(vs))):
+      values = [truncate_value(x, f[variable_name(x)], reshape=reshape)  for x in variables]
+      assign_values(variables, values, session=session)
+
+def maketree(path):
+    try:
+        os.makedirs(path)
+    except:
+        pass
+
+from tensorflow.python.framework import dtypes
+
+state.cache_ops = {}
+
+def cast_variables(variables, graph=None, cache_ops=None):
+  if graph is None:
+    graph = tf.get_default_graph()
+  if cache_ops is None:
+    cache_ops = state.cache_ops
+  if graph not in cache_ops:
+    cache_ops[graph] = {}
+  cache = cache_ops[graph]
+  ops = []
+  for variable in variables:
+    if variable in cache:
+      op = cache[variable]
+    elif variable.dtype == dtypes.bfloat16_ref or variable.dtype == tf.bfloat16:
+      op = tf.cast(variable, tf.float32)
+    else:
+      op = variable
+    cache[variable] = op
+    ops.append(op)
+  return ops
+
+def save_variables(ckpt, session=None, var_list=None):
+    session = session or tf.get_default_session()
+    vs = var_list or tf.trainable_variables()
+    maketree(os.path.dirname(ckpt))
+    fname = ckpt+'.tmp'
+    with h5py.File(fname, "w") as f:
+      for variables in tqdm.tqdm(list(split_by_params(vs))):
+        ops = cast_variables(variables)
+        values = session.run(ops)
+        for value, variable in zip(values, variables):
+          name = variable_name(variable)
+          shape = variable.shape.as_list()
+          dtype = variable.dtype
+          dset = f.create_dataset(name, shape, dtype=np.float32)
+          dset[:] = value
+    print('Writing snapshot %s' % ckpt)
+    os.rename(ckpt+'.tmp', ckpt)
 
 def grab_values(variables, reader, reshape=False, scope=''):
   for variable in variables:
@@ -324,7 +383,8 @@ def main():
     #sess.run(reader.enqueue, dict(zip(reader.placeholders, data_loader(sess))))
     threads = []
     def thunk(i):
-      time.sleep(15.0)
+      while state.init:
+        time.sleep(1.0)
       print('Starting input threads...')
       threads.extend(reader.start_threads(sess, n_threads=1))
     parallelize([0], thunk)
