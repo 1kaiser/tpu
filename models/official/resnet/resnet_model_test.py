@@ -235,19 +235,22 @@ def run_next(sess, get_next, load_input, device):
       sess.run(tf.global_variables_initializer())
       #print('Initializing loss...')
       #sess.run(state.loss, d)
-      print('Initializing train_op...')
-      sess.run(state.train_op, d)
+      #print('Initializing train_op...')
+      #sess.run(state.train_op, d)
+      print('Initializing fit_op...')
+      sess.run(state.fit_op, d)
       print('Initialized.')
       state.init = None
   #result = sess.run(state.loss, d)
   #print('start loss', result)
-  result = 8.0
   start_time = time.time()
   n = params['batch_size']
   examples = 0
+  losses = []
   def thunk(i):
     nonlocal examples
-    sess.run(state.train_op, d)
+    v_loss = sess.run(state.fit_op, d)
+    losses.append(v_loss)
     examples += n
   if False:
     for thread in parallelize([_ for _ in range(params['train_iterations'])], thunk):
@@ -259,7 +262,7 @@ def run_next(sess, get_next, load_input, device):
   print('%d examples in %.2fs (%.2f ex/sec)' % (examples, elapsed, examples / elapsed))
   #result = sess.run(state.loss, d)
   #print('end loss', result)
-  return result
+  return losses
 
 def load2(variable, value, session=None, timeout_in_ms=None):
   op = tf.assign(variable, value)
@@ -580,6 +583,7 @@ def shard(sess, i, input_batch, device):
     with tf.control_dependencies(update_ops):
       state.train_op = optimizer.minimize(state.loss, global_step=global_step, var_list=train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
       #state.train_op = optimizer.apply_gradients(grads, global_step=global_step)
+  state.fit_op = tf.tuple([state.loss], control_inputs=[state.train_op])
 
   state.init = True
   if False:
@@ -608,7 +612,7 @@ def shard(sess, i, input_batch, device):
   load_context = tf.assign(context, images)
   load_input = tf.group([load_context, load_context_labels])
   while True:
-    run_next(sess, lambda sess: get_next, load_input, device)
+    v_losses = run_next(sess, lambda sess: get_next, load_input, device)
     now = time.time()
     elapsed = now - state.prev_time
     total = now - state.start_time
@@ -617,7 +621,7 @@ def shard(sess, i, input_batch, device):
     v_rate = sess.run(state.lr)
     v_step = sess.run(state.global_step)
     v_epoch = sess.run(state.current_epoch)
-    print('[%.2fs | %d] %d examples in %.2fs (%.2f examples/sec) lr=%.12f step=%d epoch=%f' % (total, state.counter, n, elapsed, n / elapsed, v_rate, v_step, v_epoch))
+    print('[%.2fs | %d] %d examples in %.2fs (%.2f examples/sec) lr=%.12f step=%d epoch=%f losses=%s' % (total, state.counter, n, elapsed, n / elapsed, v_rate, v_step, v_epoch, repr(v_losses)))
     state.prev_time = now
   print('Done')
   import pdb
