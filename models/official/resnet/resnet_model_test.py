@@ -381,6 +381,8 @@ def shard(sess, i):
 
       logits = network(inputs=features, is_training=True)
 
+    global_step = tf.train.get_or_create_global_step()
+
     if False:
       lr = params['lr']
       #import pdb; pdb.set_trace()
@@ -391,7 +393,6 @@ def shard(sess, i):
         epsilon=params["epsilon"])
     else:
       # Compute the current epoch and associated learning rate from global_step.
-      global_step = tf.train.get_or_create_global_step()
       steps_per_epoch = params['num_train_images'] / params['train_batch_size']
       current_epoch = (tf.cast(global_step, tf.float32) / steps_per_epoch)
       # LARS is a large batch optimizer. LARS enables higher accuracy at batch 16K
@@ -409,7 +410,7 @@ def shard(sess, i):
     one_hot_labels = tf.one_hot(context_labels, params['num_label_classes'])
     cross_entropy = tf.losses.softmax_cross_entropy(logits=logits, onehot_labels=one_hot_labels,
                                                     label_smoothing=params['label_smoothing'])
-    state.loss = cross_entropy
+      
   path = scope
   if prefix is not None:
     path = prefix + '/' + path
@@ -418,21 +419,41 @@ def shard(sess, i):
   def should_train_variable(v):
     return True
   train_vars = [v for v in all_vars if should_train_variable(v)]
-  colocate_gradients_with_ops = params['colocate_gradients_with_ops']
-  ungate_gradients = params['ungate_gradients']
-  gate_gradients=None
-  if ungate_gradients:
-    gate_gradients=tf.train.Optimizer.GATE_NONE
-  if use_memory_saving_gradients:
-    grads = memory_saving_gradients.gradients
-    grads = grads(state.loss, train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
+
+  # Add weight decay to the loss for non-batch-normalization variables.
+  if params['enable_lars']:
+    state.loss = cross_entropy
   else:
-    grads = gradients.gradients(state.loss, train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
-  grads = list(zip(grads, train_vars))
-  grads = [(g, v) if g is not None else (tf.zeros_like(v), v) for g, v in grads]  # replace disconnected gradients with zeros
-  global_step = tf.train.get_global_step()
-  #state.train_op = optimizer.minimize(state.loss, global_step=global_step)
-  state.train_op = optimizer.apply_gradients(grads, global_step=global_step)
+    state.loss = cross_entropy + params['weight_decay'] * tf.add_n([
+        tf.nn.l2_loss(v)
+        for v in train_vars
+        if 'batch_normalization' not in v.name
+    ])
+
+  if False:
+    colocate_gradients_with_ops = params['colocate_gradients_with_ops']
+    ungate_gradients = params['ungate_gradients']
+    gate_gradients=None
+    if ungate_gradients:
+      gate_gradients=tf.train.Optimizer.GATE_NONE
+    if use_memory_saving_gradients:
+      grads = memory_saving_gradients.gradients
+      grads = grads(state.loss, train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
+    else:
+      grads = gradients.gradients(state.loss, train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
+    grads = list(zip(grads, train_vars))
+    grads = [(g, v) if g is not None else (tf.zeros_like(v), v) for g, v in grads]  # replace disconnected gradients with zeros
+    #global_step = tf.train.get_global_step()
+    #state.train_op = optimizer.minimize(state.loss, global_step=global_step)
+    #state.train_op = optimizer.apply_gradients(grads, global_step=global_step)
+
+  # Batch normalization requires UPDATE_OPS to be added as a dependency to
+  # the train operation.
+  update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+  with tf.control_dependencies(update_ops):
+    state.train_op = optimizer.minimize(loss, global_step)
+    #state.train_op = optimizer.apply_gradients(grads, global_step=global_step)
+
   state.init = True
   if False:
     ckpt = tf.train.latest_checkpoint('gs://gpt-2-poetry/checkpoint/resnet_imagenet_v1_fp32_20181001')
