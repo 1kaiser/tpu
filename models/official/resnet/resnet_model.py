@@ -356,19 +356,32 @@ def block_group(inputs, filters, block_fn, blocks, strides, is_training, name,
                     use_projection=True, data_format=data_format,
                     dropblock_keep_prob=dropblock_keep_prob,
                     dropblock_size=dropblock_size)
-  if 'MEMORY_SAVING_GRADIENTS' in os.environ:
-    tf.add_to_collection('checkpoints', inputs)
 
   for _ in range(1, blocks):
     inputs = block_fn(inputs, filters, is_training, 1,
                       data_format=data_format,
                       dropblock_keep_prob=dropblock_keep_prob,
                       dropblock_size=dropblock_size)
-    if 'MEMORY_SAVING_GRADIENTS' in os.environ:
-      tf.add_to_collection('checkpoints', inputs)
 
   return tf.identity(inputs, name)
 
+import math
+
+def checkpointer():
+  checkpoint = 'MEMORY_SAVING_GRADIENTS' in os.environ
+  layers = []
+  def checkpoint(*args):
+    if len(args) < 0:
+      n_layer = len(layers)
+      every = int(math.sqrt(n_layer))
+      for i, v in enumerate(layers):
+        if checkpoint and i % every == 0:
+          print('Checkpointing', i, v)
+          tf.add_to_collection('checkpoints', v)
+    else:
+      layers.extend(args)
+      return args[0]
+  return checkpoint
 
 def resnet_v1_generator(block_fn, layers, num_classes,
                         data_format='channels_first', dropblock_keep_probs=None,
@@ -471,8 +484,15 @@ def resnet_v1(resnet_depth, num_classes, data_format='channels_first',
   if resnet_depth not in model_params:
     raise ValueError('Not a valid resnet_depth:', resnet_depth)
 
+  ckpt = checkpointer()
+
+  def block_fn(*args, **kws):
+      return ckpt(params['block'](*args, **kws))
+
   params = model_params[resnet_depth]
-  return resnet_v1_generator(
-      params['block'], params['layers'], num_classes,
+  result = resnet_v1_generator(
+      block_fn, params['layers'], num_classes,
       dropblock_keep_probs=dropblock_keep_probs, dropblock_size=dropblock_size,
       data_format=data_format)
+  ckpt()
+  return result
