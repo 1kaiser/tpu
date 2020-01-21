@@ -84,7 +84,8 @@ def iterate_imagenet(sess):
     def body():
       for label, image_encoded in zip(parsed['image/class/label'], parsed['image/encoded']):
         image_bytes = tf.reshape(image_encoded, shape=[])
-        image = image_preprocessing_fn(image_bytes=image_bytes, is_training=True, image_size=224, use_bfloat16=False)
+        use_bfloat16 = params['precision'] == 'bfloat16'
+        image = image_preprocessing_fn(image_bytes=image_bytes, is_training=True, image_size=224, use_bfloat16=use_bfloat16)
         label = tf.cast(tf.reshape(label, shape=[]), dtype=tf.int32)
         if True:
           yield label, image
