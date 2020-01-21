@@ -451,7 +451,7 @@ def shard(sess, i):
   # the train operation.
   update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
   with tf.control_dependencies(update_ops):
-    state.train_op = optimizer.minimize(loss, global_step)
+    state.train_op = optimizer.minimize(state.loss, global_step)
     #state.train_op = optimizer.apply_gradients(grads, global_step=global_step)
 
   state.init = True
