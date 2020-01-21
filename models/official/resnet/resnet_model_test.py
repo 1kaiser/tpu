@@ -122,13 +122,14 @@ from official.resnet import imagenet_input
 
 params['transpose_input'] = True
 
-def iterate_imagenet():
+def iterate_imagenet(eval=False):
   use_bfloat16 = params['precision'] == 'bfloat16'
   imagenet_train, imagenet_eval = [
     imagenet_input.ImageNetInput(is_training=True, data_dir=params['data_dir'], transpose_input=params['transpose_input'], cache=True,
                                  image_size=224, num_parallel_calls=4, include_background_label=True, use_bfloat16=use_bfloat16)
     for is_training in [True, False]]
-  zz = imagenet_train.input_fn(params=params)
+  dset = imagenet_eval if eval else imagenet_train
+  zz = dset.input_fn(params=params)
   it = zz.make_one_shot_iterator()
   nxt = it.get_next()
   def get_next(sess):
