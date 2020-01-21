@@ -435,7 +435,7 @@ def shard(sess, i):
   if params['ungate_gradients']:
     gate_gradients=tf.train.Optimizer.GATE_NONE
 
-  if False:
+  if True:
     if use_memory_saving_gradients:
       grads = memory_saving_gradients.gradients
       grads = grads(state.loss, train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
@@ -446,13 +446,19 @@ def shard(sess, i):
     #global_step = tf.train.get_global_step()
     #state.train_op = optimizer.minimize(state.loss, global_step=global_step)
     #state.train_op = optimizer.apply_gradients(grads, global_step=global_step)
-
-  # Batch normalization requires UPDATE_OPS to be added as a dependency to
-  # the train operation.
-  update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-  with tf.control_dependencies(update_ops):
-    state.train_op = optimizer.minimize(state.loss, global_step=global_step, var_list=train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
-    #state.train_op = optimizer.apply_gradients(grads, global_step=global_step)
+    # Batch normalization requires UPDATE_OPS to be added as a dependency to
+    # the train operation.
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    with tf.control_dependencies(update_ops):
+      #state.train_op = optimizer.minimize(state.loss, global_step=global_step, var_list=train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
+      state.train_op = optimizer.apply_gradients(grads, global_step=global_step)
+  else:
+    # Batch normalization requires UPDATE_OPS to be added as a dependency to
+    # the train operation.
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    with tf.control_dependencies(update_ops):
+      state.train_op = optimizer.minimize(state.loss, global_step=global_step, var_list=train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
+      #state.train_op = optimizer.apply_gradients(grads, global_step=global_step)
 
   state.init = True
   if False:
