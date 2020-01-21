@@ -218,6 +218,10 @@ def run_next(sess, get_next, context, context_labels):
   if state.init:
     print('Initializing...')
     sess.run(tf.global_variables_initializer())
+    print('Initializing loss...')
+    sess.run(state.loss, d)
+    print('Initializing train_op...')
+    sess.run(state.train_op, d)
     print('Initialized.')
     state.init = None
   result = sess.run(state.loss, d)
@@ -353,9 +357,9 @@ def shard(sess, i):
         features = tf.reshape(context, [params['image_size'], params['image_size'], 3, -1])
         features = tf.transpose(features, [3, 0, 1, 2])  # HWCN to NHWC
 
-        # Normalize the image to zero mean and unit variance.
-        features -= tf.constant(MEAN_RGB, shape=[1, 1, 3], dtype=features.dtype)
-        features /= tf.constant(STDDEV_RGB, shape=[1, 1, 3], dtype=features.dtype)
+        ## Normalize the image to zero mean and unit variance.
+        #features -= tf.constant(MEAN_RGB, shape=[1, 1, 3], dtype=features.dtype)
+        #features /= tf.constant(STDDEV_RGB, shape=[1, 1, 3], dtype=features.dtype)
 
         logits = network(inputs=features, is_training=True)
         logits = tf.cast(logits, tf.float32)

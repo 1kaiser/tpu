@@ -131,6 +131,16 @@ def _flip(image):
   image = tf.image.random_flip_left_right(image)
   return image
 
+# The input tensor is in the range of [0, 255], we need to scale them to the
+# range of [0, 1]
+MEAN_RGB = [0.485 * 255, 0.456 * 255, 0.406 * 255]
+STDDEV_RGB = [0.229 * 255, 0.224 * 255, 0.225 * 255]
+
+def _normalize(features):
+  # Normalize the image to zero mean and unit variance.
+  features -= tf.constant(MEAN_RGB, shape=[1, 1, 3], dtype=features.dtype)
+  features /= tf.constant(STDDEV_RGB, shape=[1, 1, 3], dtype=features.dtype)
+  return features
 
 def preprocess_for_train(image_bytes, use_bfloat16, image_size=IMAGE_SIZE):
   """Preprocesses the given image for evaluation.
@@ -146,6 +156,7 @@ def preprocess_for_train(image_bytes, use_bfloat16, image_size=IMAGE_SIZE):
   image = _decode_and_random_crop(image_bytes, image_size)
   image = _flip(image)
   image = tf.reshape(image, [image_size, image_size, 3])
+  image = _normalize(image)
   image = tf.image.convert_image_dtype(
       image, dtype=tf.bfloat16 if use_bfloat16 else tf.float32)
   return image
@@ -164,6 +175,7 @@ def preprocess_for_eval(image_bytes, use_bfloat16, image_size=IMAGE_SIZE):
   """
   image = _decode_and_center_crop(image_bytes, image_size)
   image = tf.reshape(image, [image_size, image_size, 3])
+  image = _normalize(image)
   image = tf.image.convert_image_dtype(
       image, dtype=tf.bfloat16 if use_bfloat16 else tf.float32)
   return image
