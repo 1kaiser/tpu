@@ -431,7 +431,7 @@ def shard(sess, i):
     ])
 
   colocate_gradients_with_ops = params['colocate_gradients_with_ops']
-  gate_gradients=None
+  gate_gradients=tf.train.Optimizer.GATE_OP
   if params['ungate_gradients']:
     gate_gradients=tf.train.Optimizer.GATE_NONE
 
@@ -451,7 +451,7 @@ def shard(sess, i):
   # the train operation.
   update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
   with tf.control_dependencies(update_ops):
-    state.train_op = optimizer.minimize(state.loss, global_step, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
+    state.train_op = optimizer.minimize(state.loss, global_step=global_step, var_list=train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
     #state.train_op = optimizer.apply_gradients(grads, global_step=global_step)
 
   state.init = True
