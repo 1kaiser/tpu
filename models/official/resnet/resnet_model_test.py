@@ -511,8 +511,9 @@ def shard(sess, i, input_batch, device):
         epsilon=params["epsilon"])
     else:
       # Compute the current epoch and associated learning rate from global_step.
-      steps_per_epoch = params['num_train_images'] / params['train_batch_size']
-      current_epoch = (tf.cast(global_step, tf.float32) / steps_per_epoch)
+      state.global_step = global_step
+      state.steps_per_epoch = steps_per_epoch = params['num_train_images'] / params['train_batch_size']
+      state.current_epoch = current_epoch = (tf.cast(global_step, tf.float32) / steps_per_epoch)
       # LARS is a large batch optimizer. LARS enables higher accuracy at batch 16K
       # and larger batch sizes.
       if params['enable_lars']:
@@ -524,6 +525,8 @@ def shard(sess, i, input_batch, device):
             learning_rate=learning_rate,
             momentum=params['momentum'],
             use_nesterov=True)
+      state.lr = learning_rate
+      state.optimizer = optimizer
 
     one_hot_labels = tf.one_hot(context_labels, params['num_label_classes'])
     cross_entropy = tf.losses.softmax_cross_entropy(logits=logits, onehot_labels=one_hot_labels,
@@ -611,7 +614,10 @@ def shard(sess, i, input_batch, device):
     total = now - state.start_time
     n = params['batch_size'] * params['train_iterations']
     state.counter += n
-    print('[%.2fs | %d] %d examples in %.2fs (%.2f examples/sec)' % (total, state.counter, n, elapsed, n / elapsed))
+    v_rate = sess.run(state.lr)
+    v_step = sess.run(state.global_step)
+    v_epoch = sess.run(state.current_epoch)
+    print('[%.2fs | %d] %d examples in %.2fs (%.2f examples/sec)lr=%.12f step=%d epoch=%f' % (total, state.counter, n, elapsed, n / elapsed, v_rate, v_step, v_epoch))
     state.prev_time = now
   print('Done')
   import pdb
