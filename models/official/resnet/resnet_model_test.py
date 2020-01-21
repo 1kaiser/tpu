@@ -322,8 +322,12 @@ def main():
         max_queue_size=4*params['batch_size'])
     input_batch = reader.dequeue(params['batch_size'])
     #sess.run(reader.enqueue, dict(zip(reader.placeholders, data_loader(sess))))
-    threads = reader.start_threads(sess, n_threads=1)
-    time.sleep(5.0)
+    threads = []
+    def thunk(i):
+      time.sleep(5.0)
+      print('Starting input threads...')
+      threads.extend(reader.start_threads(sess, n_threads=1))
+    parallelize([0], thunk)
   #import pdb
   #pdb.set_trace()
 
