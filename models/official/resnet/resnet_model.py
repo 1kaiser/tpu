@@ -379,13 +379,15 @@ def checkpointer():
           print('Checkpointing', i, v)
           tf.add_to_collection('checkpoints', v)
     else:
-      layers.extend(args)
-      return args[0]
+      v = args[0]
+      print('Appending', len(layers), v)
+      layers.append(v)
+      return v
   return checkpoint
 
-def resnet_v1_generator(block_fn, layers, num_classes,
+def resnet_v1_generator(block_fn, is_bottleneck_block, layers, num_classes,
                         data_format='channels_first', dropblock_keep_probs=None,
-                        dropblock_size=None):
+                        dropblock_size=None, checkpointer=None):
   """Generator for ResNet v1 models.
 
   Args:
@@ -457,12 +459,14 @@ def resnet_v1_generator(block_fn, layers, num_classes,
         data_format=data_format)
     inputs = tf.identity(inputs, 'final_avg_pool')
     inputs = tf.reshape(
-        inputs, [-1, 2048 if block_fn is bottleneck_block else 512])
+        inputs, [-1, 2048 if is_bottleneck_block else 512])
     inputs = tf.layers.dense(
         inputs=inputs,
         units=num_classes,
         kernel_initializer=tf.random_normal_initializer(stddev=.01))
     inputs = tf.identity(inputs, 'final_dense')
+    if checkpointer is not None:
+      checkpointer()
     return inputs
 
   model.default_image_size = 224
@@ -486,13 +490,18 @@ def resnet_v1(resnet_depth, num_classes, data_format='channels_first',
 
   ckpt = checkpointer()
 
-  def block_fn(*args, **kws):
-      return ckpt(params['block'](*args, **kws))
-
   params = model_params[resnet_depth]
-  result = resnet_v1_generator(
-      block_fn, params['layers'], num_classes,
+  bfn = params['block']
+  is_bottleneck_block = bfn is bottleneck_block
+
+  def block_fn(*args, **kws):
+      result = bfn(*args, **kws)
+      from pprint import pprint
+      pprint(('block_fn', args, kws, result))
+      ckpt(result)
+      return result
+
+  return resnet_v1_generator(
+      block_fn, is_bottleneck_block, params['layers'], num_classes,
       dropblock_keep_probs=dropblock_keep_probs, dropblock_size=dropblock_size,
-      data_format=data_format)
-  ckpt()
-  return result
+      data_format=data_format, checkpointer=ckpt)
