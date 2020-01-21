@@ -251,6 +251,7 @@ def shard(sess, i):
   with tf.variable_scope(prefix + '/' + scope, reuse=tf.AUTO_REUSE):
     if params['precision'] == 'bfloat16':
       with tf.tpu.bfloat16_scope():
+        print('Using bfloat16')
         network = resnet_model.resnet_v1(resnet_depth=50,
                                          num_classes=1001,
                                          data_format='channels_last')
