@@ -31,6 +31,8 @@ import time
 from tensorflow.core.protobuf import config_pb2
 import tqdm
 
+from tensorflow.python.ops import gradients
+
 filename = 'gs://cloud-tpu-test-datasets/fake_imagenet/train-00000-of-01024'
 filename = 'gs://gpt-2-poetry/data/imagenet/out/train-00000-of-01024'
 filename = 'gs://gpt-2-poetry/data/imagenet/out/validation-00000-of-00128'
@@ -227,31 +229,52 @@ def main():
     shard(sess, 0)
 
 def shard(sess, i):
-  network = resnet_model.resnet_v1(resnet_depth=50,
-                                   num_classes=1001,
-                                   data_format='channels_last')
-  # input_bhw3 = tf.placeholder(tf.float32, [1, 224, 224, 3])
-  context = tf.Variable(
-    tf.zeros(shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3],
-             name="context", dtype=tf.float32),
-    dtype=tf.float32,
-    shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3], trainable=False)
-  context_labels = tf.Variable([0] * params['batch_size'], name="context_labels", dtype=tf.int32,
-                               shape=[params['batch_size']], trainable=False)
+  scope = 'resnet_model'
+  prefix = 'core%04d' % i
+  with tf.variable_scope(prefix + '/' + scope, reuse=tf.AUTO_REUSE):
+    network = resnet_model.resnet_v1(resnet_depth=50,
+                                     num_classes=1001,
+                                     data_format='channels_last')
+    # input_bhw3 = tf.placeholder(tf.float32, [1, 224, 224, 3])
+    context = tf.Variable(
+      tf.zeros(shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3],
+               name="context", dtype=tf.float32),
+      dtype=tf.float32,
+      shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3], trainable=False)
+    context_labels = tf.Variable([0] * params['batch_size'], name="context_labels", dtype=tf.int32,
+                                 shape=[params['batch_size']], trainable=False)
 
-  logits = network(inputs=context, is_training=True)
+    logits = network(inputs=context, is_training=True)
 
-  lr = params['lr']
-  state.optimizer = tf.train.AdamOptimizer(
-    learning_rate=lr,
-    beta1=params["beta1"],
-    beta2=params["beta2"],
-    epsilon=params["epsilon"])
-  one_hot_labels = tf.one_hot(context_labels, params['num_label_classes'])
-  cross_entropy = tf.losses.softmax_cross_entropy(logits=logits, onehot_labels=one_hot_labels,
-                                                  label_smoothing=params['label_smoothing'])
-  state.loss = cross_entropy
-  state.train_op = state.optimizer.minimize(state.loss, global_step=tf.train.get_global_step())
+    lr = params['lr']
+    state.optimizer = tf.train.AdamOptimizer(
+      learning_rate=lr,
+      beta1=params["beta1"],
+      beta2=params["beta2"],
+      epsilon=params["epsilon"])
+    one_hot_labels = tf.one_hot(context_labels, params['num_label_classes'])
+    cross_entropy = tf.losses.softmax_cross_entropy(logits=logits, onehot_labels=one_hot_labels,
+                                                    label_smoothing=params['label_smoothing'])
+    state.loss = cross_entropy
+  path = scope
+  if prefix is not None:
+    path = prefix + '/' + path
+  global_vars = [v for v in tf.global_variables() if v.name.startswith(path + '/')]
+  all_vars = [v for v in tf.trainable_variables() if v.name.startswith(path + '/')]
+  def should_train_variable(v):
+    return True
+  train_vars = [v for v in all_vars if should_train_variable(v)]
+  colocate_gradients_with_ops = True
+  ungate_gradients = False
+  gate_gradients=None
+  if ungate_gradients:
+    gate_gradients=tf.train.Optimizer.GATE_NONE
+  grads = gradients.gradients(state.loss, train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
+  grads = list(zip(grads, train_vars))
+  grads = [(g, v) if g is not None else (tf.zeros_like(v), v) for g, v in grads]  # replace disconnected gradients with zeros
+  global_step = tf.train.get_global_step()
+  #state.train_op = state.optimizer.minimize(state.loss, global_step=global_step)
+  state.train_op = state.optimizer.apply_gradients(grads, global_step=global_step)
   state.init = True
   if False:
     ckpt = tf.train.latest_checkpoint('gs://gpt-2-poetry/checkpoint/resnet_imagenet_v1_fp32_20181001')
