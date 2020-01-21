@@ -54,6 +54,7 @@ params['prefetch_mb'] = 128  # Amount of data to prefetch (megabytes), 0 = disab
 params['buffer_mb'] = 16  # Read buffer size (megabytes).
 params['repeat'] = bool(os.environ['REPEAT']) if 'REPEAT' in os.environ else False
 params['train_iterations'] = int(os.environ['TRAIN_ITERATIONS']) if 'TRAIN_ITERATIONS' in os.environ else 4
+params['shard'] = int(os.envrion['SHARD']) if 'SHARD' in os.environ else -1
 
 use_memory_saving_gradients = 'MEMORY_SAVING_GRADIENTS' in os.environ
 
@@ -228,7 +229,11 @@ def main():
   target = os.environ['TPU_NAME'] if 'TPU_NAME' in os.environ else None
   sess = tf.Session(target=target, config=config)
   state.cores = sess.list_devices()[2:10]
-  with tf.device(state.cores[0].name):
+  i = params['shard']
+  if i >= 0:
+    with tf.device(state.cores[i].name):
+      shard(sess, i)
+  else:
     shard(sess, 0)
 
 def shard(sess, i):
