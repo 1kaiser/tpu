@@ -32,6 +32,7 @@ from tensorflow.core.protobuf import config_pb2
 import tqdm
 
 from tensorflow.python.ops import gradients
+import memory_saving_gradients
 
 filename = 'gs://cloud-tpu-test-datasets/fake_imagenet/train-00000-of-01024'
 filename = 'gs://gpt-2-poetry/data/imagenet/out/train-00000-of-01024'
@@ -53,6 +54,8 @@ params['prefetch_mb'] = 128  # Amount of data to prefetch (megabytes), 0 = disab
 params['buffer_mb'] = 16  # Read buffer size (megabytes).
 params['repeat'] = bool(os.environ['REPEAT']) if 'REPEAT' in os.environ else False
 params['train_iterations'] = int(os.environ['TRAIN_ITERATIONS']) if 'TRAIN_ITERATIONS' in os.environ else 4
+
+use_memory_saving_gradients = 'MEMORY_SAVING_GRADIENTS' in os.environ
 
 def iterate_imagenet(sess):
   image_preprocessing_fn = resnet_preprocessing.preprocess_image
@@ -269,7 +272,11 @@ def shard(sess, i):
   gate_gradients=None
   if ungate_gradients:
     gate_gradients=tf.train.Optimizer.GATE_NONE
-  grads = gradients.gradients(state.loss, train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
+  if use_memory_saving_gradients:
+    grads = memory_saving_gradients.gradients
+    grads = grads(state.loss, train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
+  else:
+    grads = gradients.gradients(state.loss, train_vars, colocate_gradients_with_ops=colocate_gradients_with_ops, gate_gradients=gate_gradients)
   grads = list(zip(grads, train_vars))
   grads = [(g, v) if g is not None else (tf.zeros_like(v), v) for g, v in grads]  # replace disconnected gradients with zeros
   global_step = tf.train.get_global_step()

@@ -24,6 +24,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow.compat.v1 as tf
+import os
 
 BATCH_NORM_DECAY = 0.9
 BATCH_NORM_EPSILON = 1e-5
@@ -355,12 +356,16 @@ def block_group(inputs, filters, block_fn, blocks, strides, is_training, name,
                     use_projection=True, data_format=data_format,
                     dropblock_keep_prob=dropblock_keep_prob,
                     dropblock_size=dropblock_size)
+  if 'MEMORY_SAVING_GRADIENTS' in os.environ:
+    tf.add_to_collection('checkpoints', inputs)
 
   for _ in range(1, blocks):
     inputs = block_fn(inputs, filters, is_training, 1,
                       data_format=data_format,
                       dropblock_keep_prob=dropblock_keep_prob,
                       dropblock_size=dropblock_size)
+    if 'MEMORY_SAVING_GRADIENTS' in os.environ:
+      tf.add_to_collection('checkpoints', inputs)
 
   return tf.identity(inputs, name)
 
