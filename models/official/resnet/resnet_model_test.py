@@ -66,11 +66,12 @@ params['train_batch_size'] = params['batch_size']
 params['eval_batch_size'] = params['batch_size']
 import math
 params['train_steps'] = math.ceil(32768*2983/params['train_batch_size'])
-params['momentum'] = 0.9
-params['weight_decay'] = 0.0001
+params['momentum'] = float(os.environ['MOMENTUM']) if 'MOMENTUM' in os.environ else 0.9
+params['weight_decay'] = float(os.environ['WEIGHT_DECAY']) if 'WEIGHT_DECAY' in os.environ else 0.0001
 params['enable_lars'] = False
-params['base_learning_rate'] = 0.1
+params['base_learning_rate'] = float(os.environ['BASE_LEARNING_RATE']) if 'BASE_LEARNING_RATE' in os.environ else 0.1
 params['warmup_epochs'] = float(os.environ['WARMUP_EPOCHS']) if 'WARMUP_EPOCHS' in os.environ else 5
+params['use_adam'] = True if 'USE_ADAM' in os.environ else False
 
 from pprint import pprint
 pprint(params)
@@ -498,20 +499,21 @@ def shard(sess, i, input_batch, device):
       logits = network(inputs=features, is_training=True)
 
     global_step = tf.train.get_or_create_global_step()
+    # Compute the current epoch and associated learning rate from global_step.
+    state.global_step = global_step
+    state.steps_per_epoch = steps_per_epoch = params['num_train_images'] / params['train_batch_size']
+    state.current_epoch = current_epoch = (tf.cast(global_step, tf.float32) / steps_per_epoch)
 
-    if False:
-      lr = params['lr']
+    if params['use_adam']:
+      #learning_rate = params['lr']
+      learning_rate = learning_rate_schedule(params, current_epoch)
       #import pdb; pdb.set_trace()
       optimizer = tf.train.AdamOptimizer(
-        learning_rate=lr,
+        learning_rate=learning_rate,
         beta1=params["beta1"],
         beta2=params["beta2"],
         epsilon=params["epsilon"])
     else:
-      # Compute the current epoch and associated learning rate from global_step.
-      state.global_step = global_step
-      state.steps_per_epoch = steps_per_epoch = params['num_train_images'] / params['train_batch_size']
-      state.current_epoch = current_epoch = (tf.cast(global_step, tf.float32) / steps_per_epoch)
       # LARS is a large batch optimizer. LARS enables higher accuracy at batch 16K
       # and larger batch sizes.
       if params['enable_lars']:
