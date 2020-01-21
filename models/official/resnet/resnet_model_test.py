@@ -27,6 +27,7 @@ import threading
 from tensorflow.python import pywrap_tensorflow
 import os
 import time
+import sys
 
 from tensorflow.core.protobuf import config_pb2
 import tqdm
@@ -51,6 +52,7 @@ params['lr'] = float(os.environ['LR']) if 'LR' in os.environ else 0.000055
 params['batch_size'] = int(os.environ['BATCH_SIZE']) if 'BATCH_SIZE' in os.environ else 16
 params['num_cores'] = 1
 params['image_size'] = 224
+params['image_channels'] = 3
 #params['prefetch_mb'] = 2048,  # Amount of data to prefetch (megabytes), 0 = disable prefetching.
 params['prefetch_mb'] = 128  # Amount of data to prefetch (megabytes), 0 = disable prefetching.
 params['buffer_mb'] = 16  # Read buffer size (megabytes).
@@ -82,7 +84,7 @@ def iterate_imagenet(sess):
   def parse(value):
     return tf.parse_single_example(value, keys_to_features)
   dset = dset.map(parse)
-  tfr_shape = [params['batch_size'], params['image_size'], params['image_size'], 3]
+  tfr_shape = [params['batch_size'], params['image_size'], params['image_size'], params['image_channels']]
   bytes_per_item = np.prod(tfr_shape) * np.dtype(np.float32).itemsize
   #if shuffle_mb > 0:
     #dset = dset.shuffle(((shuffle_mb << 20) - 1) // bytes_per_item + 1)
@@ -101,8 +103,8 @@ def iterate_imagenet(sess):
       for label, image_encoded in zip(parsed['image/class/label'], parsed['image/encoded']):
         image_bytes = tf.reshape(image_encoded, shape=[])
         use_bfloat16 = params['precision'] == 'bfloat16'
-        image = image_preprocessing_fn(image_bytes=image_bytes, is_training=True, image_size=224, use_bfloat16=use_bfloat16)
-        label = tf.cast(tf.reshape(label, shape=[]), dtype=tf.int32)
+        image = image_preprocessing_fn(image_bytes=image_bytes, is_training=True, image_size=params['image_size'], use_bfloat16=use_bfloat16)
+        label = tf.cast(tf.reshape(label, shape=[]), dtype=tf.int64)
         if True:
           yield label, image
         else:
@@ -130,7 +132,7 @@ def iterate_imagenet():
   nxt = it.get_next()
   def get_next(sess):
     images, labels = sess.run(nxt)
-    return labels, images
+    return images, labels
   return get_next
 
 class Namespace(object):
@@ -205,37 +207,58 @@ def restore(sess, ckpt, var_list=None, scope=''):
       value = reader.get_tensor(name)
       assign_values([v], [value], session=sess)
 
+import threading
 
-def run_next(sess, get_next, context, context_labels):
+def parallelize(xs, thunk, *args):
+  threads = []
+  for x in xs:
+    thread = threading.Thread(target=thunk, args=(x, *args))
+    thread.start()
+    threads.append(thread)
+  return threads
+
+def run_next(sess, get_next, load_input, device):
   print('Fetching...')
-  labels, images = get_next(sess)
+  images, labels = get_next(sess)
   d = {}
-  print('Loading labels...')
-  print(load(context_labels, labels, session=sess))
-  print('Loading images...')
-  load(context, images, session=sess)
-  print('Loaded')
-  if state.init:
-    print('Initializing...')
-    sess.run(tf.global_variables_initializer())
-    print('Initializing loss...')
-    sess.run(state.loss, d)
-    print('Initializing train_op...')
-    sess.run(state.train_op, d)
-    print('Initialized.')
-    state.init = None
-  result = sess.run(state.loss, d)
-  print('start loss', result)
+  #import pdb; pdb.set_trace()
+  with tf.device(device):
+    print('Loading...')
+    sess.run(load_input)
+    #print(load2(context_labels, labels, session=sess))
+    #print('Loading images...')
+    #sess.run(load_context)
+    #load2(context, images, session=sess)
+    print('Loaded')
+    if state.init:
+      print('Initializing...')
+      sess.run(tf.global_variables_initializer())
+      #print('Initializing loss...')
+      #sess.run(state.loss, d)
+      print('Initializing train_op...')
+      sess.run(state.train_op, d)
+      print('Initialized.')
+      state.init = None
+  #result = sess.run(state.loss, d)
+  #print('start loss', result)
+  result = 8.0
   start_time = time.time()
   n = params['batch_size']
   examples = 0
-  for i in range(params['train_iterations']):
+  def thunk(i):
+    nonlocal examples
     sess.run(state.train_op, d)
     examples += n
+  if False:
+    for thread in parallelize([_ for _ in range(params['train_iterations'])], thunk):
+      thread.join()
+  else:
+    for i in range(params['train_iterations']):
+      thunk(i)
   elapsed = time.time() - start_time
   print('%d examples in %.2fs (%.2f ex/sec)' % (examples, elapsed, examples / elapsed))
-  result = sess.run(state.loss, d)
-  print('end loss', result)
+  #result = sess.run(state.loss, d)
+  #print('end loss', result)
   return result
 
 def load2(variable, value, session=None, timeout_in_ms=None):
@@ -264,6 +287,14 @@ args.disable_layout_optimizer = False
 args.no_report_tensor_allocations_upon_oom = True
 
 def main():
+  self = Namespace()
+  use_bfloat16 = params['precision'] == 'bfloat16'
+  img_dtype = tf.bfloat16 if use_bfloat16 else tf.float32
+
+  self.image_placeholder = tf.placeholder(dtype=img_dtype, shape=(None, params['image_size'] * params['image_size'] * params['image_channels']), name='image')
+  self.image_label_placeholder = tf.placeholder(dtype=tf.int32, shape=(None), name='image_label')
+  self.batch_size_placeholder = tf.placeholder(tf.int32, name='batch_size')
+  
   timeout = 600000
   config = config_pb2.ConfigProto(operation_timeout_in_ms=timeout)
   config.allow_soft_placement = False
@@ -276,13 +307,36 @@ def main():
   options = config_pb2.RunOptions(report_tensor_allocations_upon_oom=(not args.no_report_tensor_allocations_upon_oom))
   target = os.environ['TPU_NAME'] if 'TPU_NAME' in os.environ else None
   sess = tf.Session(target=target, config=config)
+  coord = tf.train.Coordinator()
   state.cores = sess.list_devices()[2:10]
   i = params['shard']
+  core = state.cores[i].name if i >= 0 else None
+  with tf.name_scope('create_inputs'), tf.device(core):
+    get_next = iterate_imagenet()
+    def data_loader(sess):
+      images, labels = get_next(sess)
+      images = images.reshape([-1, 224*224*3])
+      yield images, labels
+
+    reader = DataGenerator(coord, load_data=data_loader, dtypes=[img_dtype, tf.int32], shapes=[(params['image_size'] * params['image_size'] * params['image_channels'],), ()],
+        placeholders=[self.image_placeholder, self.image_label_placeholder],
+        max_queue_size=2*params['batch_size'])
+    input_batch = reader.dequeue(params['batch_size'])
+    #sess.run(reader.enqueue, dict(zip(reader.placeholders, data_loader(sess))))
+    threads = reader.start_threads(sess, n_threads=1)
+  #import pdb
+  #pdb.set_trace()
+
   if i >= 0:
-    with tf.device(state.cores[i].name):
-      shard(sess, i)
+    with tf.device(core):
+      shard(sess, i, input_batch, core)
   else:
-    shard(sess, 0)
+    shard(sess, 0, input_batch, core)
+    
+  coord.request_stop()
+  print("stop requested.")
+  for thread in threads:
+      thread.join()
 
 
 # The input tensor is in the range of [0, 255], we need to scale them to the
@@ -334,11 +388,72 @@ def learning_rate_schedule(params, current_epoch):
   return decay_rate
 
 
-def shard(sess, i):
+def _load_data():
+    # custom it with your data loader here.
+    for i in range(10000):
+        yield np.random.uniform(size=(5, 5))
+
+class DataGenerator(object):
+    def __init__(self,
+                 coord,
+                 load_data=_load_data,
+                 dtypes=['float32'],
+                 shapes=[(None, None)],
+                 placeholders=None,
+                 max_queue_size=16,
+                 wait_time=0.01):
+        # Change the shape of the input data here with the parameter shapes.
+        self.wait_time = wait_time
+        self.max_queue_size = max_queue_size
+        self.queue = tf.PaddingFIFOQueue(max_queue_size, dtypes, shapes=shapes)
+        self.queue_size = self.queue.size()
+        self.threads = []
+        self.load_data = load_data
+        self.coord = coord
+        self.placeholders = placeholders
+        #self.sample_placeholder = tf.placeholder(dtype=tf.float32, shape=None)
+        #self.enqueue = self.queue.enqueue([self.sample_placeholder])
+        self.enqueue = self.queue.enqueue_many(self.placeholders)
+
+    def dequeue(self, num_elements):
+        output = self.queue.dequeue_many(num_elements)
+        return output
+
+    def thread_main(self, sess):
+        stop = False
+        while not stop:
+            iterator = self.load_data(sess)
+            for data in iterator:
+                while True:
+                    n = self.queue_size.eval(session=sess)
+                    if n >= self.max_queue_size:
+                        if self.coord.should_stop():
+                            break
+                        time.sleep(self.wait_time)
+                    else:
+                        print('Enqueue (%d / %d)' % (n, self.max_queue_size))
+                        sys.stdout.flush()
+                        break
+                if self.coord.should_stop():
+                    stop = True
+                    print("Enqueue thread receives stop request.")
+                    sys.stdout.flush()
+                    break
+                sess.run(self.enqueue, feed_dict=dict(zip(self.placeholders, data)))
+
+    def start_threads(self, sess, n_threads=1):
+        for _ in range(n_threads):
+            thread = threading.Thread(target=self.thread_main, args=(sess,))
+            thread.daemon = True  # Thread will close when parent quits.
+            thread.start()
+            self.threads.append(thread)
+        return self.threads
+
+def shard(sess, i, input_batch, device):
   scope = 'resnet_model'
   prefix = 'core%04d' % i
   with tf.variable_scope(prefix + '/' + scope, reuse=tf.AUTO_REUSE):
-    shape = [params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3]
+    shape = [params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], params['image_channels']]
     if params['transpose_input']:
       shape = [params['batch_size'] * params['image_size'] * params['image_size'] * 3]
     if params['precision'] == 'bfloat16':
@@ -354,7 +469,7 @@ def shard(sess, i):
         context_labels = tf.Variable([0] * params['batch_size'], name="context_labels", dtype=tf.int32,
                                      shape=[params['batch_size']], trainable=False)
 
-        features = tf.reshape(context, [params['image_size'], params['image_size'], 3, -1])
+        features = tf.reshape(context, [params['image_size'], params['image_size'], params['image_channels'], -1])
         features = tf.transpose(features, [3, 0, 1, 2])  # HWCN to NHWC
 
         ## Normalize the image to zero mean and unit variance.
@@ -376,7 +491,7 @@ def shard(sess, i):
       context_labels = tf.Variable([0] * params['batch_size'], name="context_labels", dtype=tf.int32,
                                    shape=[params['batch_size']], trainable=False)
 
-      features = tf.reshape(context, [params['image_size'], params['image_size'], 3, -1])
+      features = tf.reshape(context, [params['image_size'], params['image_size'], params['image_channels'], -1])
       features = tf.transpose(features, [3, 0, 1, 2])  # HWCN to NHWC
 
       # Normalize the image to zero mean and unit variance.
@@ -476,12 +591,22 @@ def shard(sess, i):
     # print('Restored.')
   # _ = sess.run(resnet_output, feed_dict={input_bhw3: np.random.randn(1, 224, 224, 3)})
   # print('TKTK', repr(_))
-  get_next = iterate_imagenet()
+  #get_next = iterate_imagenet()
+  #def get_next(sess):
+  #  #images, labels = sess.run(input_batch)
+  #  #return [images.reshape([-1]), labels]
+  #  images, labels = input_batch
+  #  return [tf.reshape(images, [-1]), labels]
+  get_next = [tf.reshape(input_batch[0], [-1]), input_batch[1]]
   state.start_time = time.time()
   state.prev_time = time.time()
   state.counter = 0
+  images, labels = get_next
+  load_context_labels = tf.assign(context_labels, labels)
+  load_context = tf.assign(context, images)
+  load_input = tf.group([load_context, load_context_labels])
   while True:
-    run_next(sess, get_next, context, context_labels)
+    run_next(sess, lambda sess: get_next, load_input, device)
     now = time.time()
     elapsed = now - state.prev_time
     total = now - state.start_time
