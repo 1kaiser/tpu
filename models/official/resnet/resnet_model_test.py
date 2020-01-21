@@ -348,10 +348,10 @@ def get_lr_schedule(train_steps, num_train_images, train_batch_size):
   steps_per_epoch = np.floor(num_train_images / train_batch_size)
   train_epochs = train_steps / steps_per_epoch
   return [  # (multiplier, epoch to start) tuples
-      (1.0, np.floor(params['warmup_epochs'] / 90 * train_epochs)),
-      (0.1, np.floor(30 / 90 * train_epochs)),
-      (0.01, np.floor(60 / 90 * train_epochs)),
-      (0.001, np.floor(80 / 90 * train_epochs))
+      (1.0, params['warmup_epochs'] / 90 * train_epochs),
+      (0.1, 30 / 90 * train_epochs),
+      (0.01, 60 / 90 * train_epochs),
+      (0.001, 80 / 90 * train_epochs)
   ]
 
 
@@ -520,7 +520,6 @@ def shard(sess, i, input_batch, device):
         learning_rate = 0.0
         optimizer = lars_util.init_lars_optimizer(current_epoch, params)
       else:
-        learning_rate = learning_rate_schedule(params, current_epoch)
         optimizer = tf.train.MomentumOptimizer(
             learning_rate=learning_rate,
             momentum=params['momentum'],
