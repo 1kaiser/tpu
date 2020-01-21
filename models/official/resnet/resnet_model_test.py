@@ -223,6 +223,12 @@ def run_next(sess, get_next, load_input, device):
   d = {}
   #import pdb; pdb.set_trace()
   with tf.device(device):
+    if state.init:
+      print('Initializing...')
+      #sess.run(tf.global_variables_initializer())
+      sess.run(state.init)
+      print('Initialized.')
+      state.init = None
     print('Loading...')
     sess.run(load_input)
     #print(load2(context_labels, labels, session=sess))
@@ -230,18 +236,6 @@ def run_next(sess, get_next, load_input, device):
     #sess.run(load_context)
     #load2(context, images, session=sess)
     print('Loaded')
-    if state.init:
-      print('Initializing...')
-      #sess.run(tf.global_variables_initializer())
-      sess.run(state.init)
-      #print('Initializing loss...')
-      #sess.run(state.loss, d)
-      #print('Initializing train_op...')
-      #sess.run(state.train_op, d)
-      print('Initializing fit_op...')
-      sess.run(state.fit_op, d)
-      print('Initialized.')
-      state.init = None
   #result = sess.run(state.loss, d)
   #print('start loss', result)
   start_time = time.time()
