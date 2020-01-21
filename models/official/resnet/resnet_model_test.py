@@ -323,6 +323,7 @@ def main():
     input_batch = reader.dequeue(params['batch_size'])
     #sess.run(reader.enqueue, dict(zip(reader.placeholders, data_loader(sess))))
     threads = reader.start_threads(sess, n_threads=1)
+    time.sleep(5.0)
   #import pdb
   #pdb.set_trace()
 
