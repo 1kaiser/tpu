@@ -294,10 +294,6 @@ def main():
   self = Namespace()
   use_bfloat16 = params['precision'] == 'bfloat16'
   img_dtype = tf.bfloat16 if use_bfloat16 else tf.float32
-
-  self.image_placeholder = tf.placeholder(dtype=img_dtype, shape=(None, params['image_size'] * params['image_size'] * params['image_channels']), name='image')
-  self.image_label_placeholder = tf.placeholder(dtype=tf.int32, shape=(None), name='image_label')
-  self.batch_size_placeholder = tf.placeholder(tf.int32, name='batch_size')
   
   timeout = 600000
   config = config_pb2.ConfigProto(operation_timeout_in_ms=timeout)
@@ -321,6 +317,10 @@ def main():
       images, labels = get_next(sess)
       images = images.reshape([-1, 224*224*3])
       yield images, labels
+
+    self.image_placeholder = tf.placeholder(dtype=img_dtype, shape=(None, params['image_size'] * params['image_size'] * params['image_channels']), name='image')
+    self.image_label_placeholder = tf.placeholder(dtype=tf.int32, shape=(None), name='image_label')
+    self.batch_size_placeholder = tf.placeholder(tf.int32, name='batch_size')
 
     reader = DataGenerator(coord, load_data=data_loader, dtypes=[img_dtype, tf.int32], shapes=[(params['image_size'] * params['image_size'] * params['image_channels'],), ()],
         placeholders=[self.image_placeholder, self.image_label_placeholder],
