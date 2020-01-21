@@ -371,7 +371,7 @@ def checkpointer():
   checkpoint = 'MEMORY_SAVING_GRADIENTS' in os.environ
   layers = []
   def checkpoint(*args):
-    if len(args) > 0:
+    if len(args) <= 0:
       n_layer = len(layers)
       every = int(math.sqrt(n_layer))
       for i, v in enumerate(layers):
