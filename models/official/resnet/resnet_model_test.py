@@ -72,6 +72,7 @@ params['enable_lars'] = False
 params['base_learning_rate'] = float(os.environ['BASE_LEARNING_RATE']) if 'BASE_LEARNING_RATE' in os.environ else 0.1
 params['warmup_epochs'] = float(os.environ['WARMUP_EPOCHS']) if 'WARMUP_EPOCHS' in os.environ else 5
 params['use_adam'] = True if 'USE_ADAM' in os.environ else False
+params['eval'] = True if 'EVAL' in os.environ else False
 
 from pprint import pprint
 pprint(params)
@@ -314,7 +315,7 @@ def run_next(sess, get_next, load_input, device):
   losses = []
   def thunk(i):
     nonlocal examples
-    v_loss = sess.run(state.fit_op, d)
+    v_loss = sess.run(state.eval_op if params['eval'] else state.fit_op, d)
     losses.append(v_loss)
     examples += n
   if False:
@@ -375,7 +376,7 @@ def main():
   i = params['shard']
   core = state.cores[i].name if i >= 0 else None
   with tf.name_scope('create_inputs'), tf.device(core):
-    get_next = iterate_imagenet()
+    get_next = iterate_imagenet(params['eval'])
     def data_loader(sess):
       images, labels = get_next(sess)
       images = images.reshape([-1, 224*224*3])
@@ -609,9 +610,43 @@ def shard(sess, i, input_batch, device):
     state.optimizer = optimizer
 
     one_hot_labels = tf.one_hot(context_labels, params['num_label_classes'])
+    #import pdb; pdb.set_trace()
     cross_entropy = tf.losses.softmax_cross_entropy(logits=logits, onehot_labels=one_hot_labels,
                                                     label_smoothing=params['label_smoothing'])
-      
+    def metric_fn(labels, logits):
+      """Evaluation metric function. Evaluates accuracy.
+
+      This function is executed on the CPU and should not directly reference
+      any Tensors in the rest of the `model_fn`. To pass Tensors from the model
+      to the `metric_fn`, provide as part of the `eval_metrics`. See
+      https://www.tensorflow.org/api_docs/python/tf/estimator/tpu/TPUEstimatorSpec
+      for more information.
+
+      Arguments should match the list of `Tensor` objects passed as the second
+      element in the tuple passed to `eval_metrics`.
+
+      Args:
+        labels: `Tensor` with shape `[batch]`.
+        logits: `Tensor` with shape `[batch, num_classes]`.
+
+      Returns:
+        A dict of the metrics to return from evaluation.
+      """
+      predictions = tf.argmax(logits, axis=1)
+      top_1_accuracy = tf.metrics.accuracy(labels, predictions)
+      in_top_5 = tf.cast(tf.nn.in_top_k(logits, labels, 5), tf.float32)
+      top_5_accuracy = tf.metrics.mean(in_top_5)
+
+      return {
+          'top_1_accuracy': top_1_accuracy,
+          'top_5_accuracy': top_5_accuracy,
+      }
+
+    state.labels = context_labels
+    state.logits = logits
+    state.metric_fn = metric_fn
+    state.eval_op = metric_fn(context_labels, logits)
+
   path = scope
   if prefix is not None:
     path = prefix + '/' + path
