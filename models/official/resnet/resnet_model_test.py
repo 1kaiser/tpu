@@ -59,6 +59,9 @@ params['precision'] = os.environ['PRECISION'] if 'PRECISION' in os.environ else 
 params['colocate_gradients_with_ops'] = bool(os.environ['COLOCATE_GRADIENTS']) if 'COLOCATE_GRADIENTS' in os.environ else True
 params['ungate_gradients'] = bool(os.environ['UNGATE_GRADIENTS']) if 'UNGATE_GRADIENTS' in os.environ else False
 
+from pprint import pprint
+pprint(params)
+
 use_memory_saving_gradients = 'MEMORY_SAVING_GRADIENTS' in os.environ
 
 def iterate_imagenet(sess):
