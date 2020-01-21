@@ -374,6 +374,8 @@ def checkpointer():
     if len(args) <= 0:
       n_layer = len(layers)
       every = int(math.sqrt(n_layer))
+      if 'CHECKPOINT_EVERY_LAYER' in os.environ:
+        every = 1
       for i, v in enumerate(layers):
         if checkpoint and i % every == 0:
           print('Checkpointing', i, v)
