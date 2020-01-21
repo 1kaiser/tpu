@@ -192,7 +192,7 @@ def run_next(sess, get_next, context, context_labels):
   for i in range(params['train_iterations']):
     sess.run(state.train_op, d)
     examples += n
-  elapsed = time.time() - start_time()
+  elapsed = time.time() - start_time
   print('%d examples in %.2fs (%.2f ex/sec)' % (examples, elapsed, examples / elapsed))
   result = sess.run(state.loss, d)
   print('end loss', result)
