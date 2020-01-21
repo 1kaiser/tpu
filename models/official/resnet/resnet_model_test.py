@@ -480,8 +480,6 @@ def shard(sess, i, input_batch, device):
       network = resnet_model.resnet_v1(resnet_depth=50,
                                        num_classes=1001,
                                        data_format='channels_last')
-      state.mult_lr = tf.Variable(1.0, dtype=tf.float32, shape=[], trainable=False)
-      state.set_lr = tf.Variable(-1.0, dtype=tf.float32, shape=[], trainable=False)
       context = tf.Variable(
         tf.zeros(shape=shape,
                  name="context", dtype=tf.float32),
@@ -505,6 +503,8 @@ def shard(sess, i, input_batch, device):
     state.global_step = global_step
     state.steps_per_epoch = steps_per_epoch = params['num_train_images'] / params['train_batch_size']
     state.current_epoch = current_epoch = (tf.cast(global_step, tf.float32) / steps_per_epoch)
+    state.mult_lr = tf.Variable(1.0, dtype=tf.float32, shape=[], trainable=False)
+    state.set_lr = tf.Variable(-1.0, dtype=tf.float32, shape=[], trainable=False)
 
     #learning_rate = params['lr']
     learning_rate = learning_rate_schedule(params, current_epoch)
