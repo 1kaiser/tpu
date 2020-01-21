@@ -182,6 +182,8 @@ def variable_name(variable):
     return variable.name.split('/', 1)[-1]
   return variable.name
 
+import h5py
+
 def load_variables(ckpt, session=None, var_list=None, reshape=False):
   session = session or tf.get_default_session()
   vs = var_list or tf.trainable_variables()
