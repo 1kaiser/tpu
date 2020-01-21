@@ -288,6 +288,9 @@ def run_next(sess, get_next, load_input, device):
       #sess.run(tf.global_variables_initializer())
       sess.run(state.init)
       print('Initialized.')
+      if 'RESTORE_FROM' in os.environ:
+        ckpt = os.environ['RESTORE_FROM']
+        load_variables(ckpt, session=sess, var_list=state.var_list)
       state.init = None
     print('Loading...')
     sess.run(load_input)
@@ -611,6 +614,7 @@ def shard(sess, i, input_batch, device):
   def should_train_variable(v):
     return True
   train_vars = [v for v in all_vars if should_train_variable(v)]
+  state.var_list = train_vars
 
   # Add weight decay to the loss for non-batch-normalization variables.
   if params['enable_lars']:
