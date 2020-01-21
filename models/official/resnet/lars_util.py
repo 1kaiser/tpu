@@ -83,7 +83,7 @@ def init_lars_optimizer(current_epoch, params):
   """Initialize the LARS Optimizer."""
 
   try:
-    from tf.contrib.opt import LARSOptimizer  # pylint: disable=g-import-not-at-top
+    from tensorflow.contrib.opt import LARSOptimizer  # pylint: disable=g-import-not-at-top
   except ImportError as e:
     logging.exception('LARS optimizer is not supported in TensorFlow 2.x')
     raise e
