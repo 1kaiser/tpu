@@ -292,6 +292,10 @@ def run_next(sess, get_next, load_input, device):
       print('Initialized.')
       if 'RESTORE_FROM' in os.environ:
         ckpt = os.environ['RESTORE_FROM']
+        paths = [ckpt]
+        ctrs = np.array([[int(y) for y in re.findall(r'model-([0-9]+)(?:-[0-9]+)?[.](?:npy|hdf5)', x)] for x in paths]).flatten()
+        if len(ctrs) > 0:
+          state.counter = ctrs.max()
         load_variables(ckpt, session=sess, var_list=state.var_list)
       state.init = None
     print('Loading...')
