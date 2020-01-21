@@ -70,7 +70,7 @@ params['momentum'] = 0.9
 params['weight_decay'] = 0.0001
 params['enable_lars'] = False
 params['base_learning_rate'] = 0.1
-params['warmup_epochs'] = int(os.environ['WARMUP_EPOCHS']) if 'WARMUP_EPOCHS' in os.environ else 5
+params['warmup_epochs'] = float(os.environ['WARMUP_EPOCHS']) if 'WARMUP_EPOCHS' in os.environ else 5
 
 from pprint import pprint
 pprint(params)
