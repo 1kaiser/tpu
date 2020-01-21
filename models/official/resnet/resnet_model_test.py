@@ -55,6 +55,7 @@ params['buffer_mb'] = 16  # Read buffer size (megabytes).
 params['repeat'] = bool(os.environ['REPEAT']) if 'REPEAT' in os.environ else False
 params['train_iterations'] = int(os.environ['TRAIN_ITERATIONS']) if 'TRAIN_ITERATIONS' in os.environ else 4
 params['shard'] = int(os.environ['SHARD']) if 'SHARD' in os.environ else -1
+params['precision'] = os.environ['PRECISION'] if 'PRECISION' in os.environ else 'float32'
 
 use_memory_saving_gradients = 'MEMORY_SAVING_GRADIENTS' in os.environ
 
@@ -248,19 +249,37 @@ def shard(sess, i):
   scope = 'resnet_model'
   prefix = 'core%04d' % i
   with tf.variable_scope(prefix + '/' + scope, reuse=tf.AUTO_REUSE):
-    network = resnet_model.resnet_v1(resnet_depth=50,
-                                     num_classes=1001,
-                                     data_format='channels_last')
-    # input_bhw3 = tf.placeholder(tf.float32, [1, 224, 224, 3])
-    context = tf.Variable(
-      tf.zeros(shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3],
-               name="context", dtype=tf.float32),
-      dtype=tf.float32,
-      shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3], trainable=False)
-    context_labels = tf.Variable([0] * params['batch_size'], name="context_labels", dtype=tf.int32,
-                                 shape=[params['batch_size']], trainable=False)
+    if params['precision'] == 'bfloat16':
+      with tf.tpu.bfloat16_scope():
+        network = resnet_model.resnet_v1(resnet_depth=50,
+                                         num_classes=1001,
+                                         data_format='channels_last')
+        # input_bhw3 = tf.placeholder(tf.float32, [1, 224, 224, 3])
+        context = tf.Variable(
+          tf.zeros(shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3],
+                   name="context", dtype=tf.float32),
+          dtype=tf.float32,
+          shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3], trainable=False)
+        context_labels = tf.Variable([0] * params['batch_size'], name="context_labels", dtype=tf.int32,
+                                     shape=[params['batch_size']], trainable=False)
 
-    logits = network(inputs=context, is_training=True)
+        logits = network(inputs=context, is_training=True)
+        logits = tf.cast(logits, tf.float32)
+    else:
+      network = resnet_model.resnet_v1(resnet_depth=50,
+                                       num_classes=1001,
+                                       data_format='channels_last')
+      # input_bhw3 = tf.placeholder(tf.float32, [1, 224, 224, 3])
+      context = tf.Variable(
+        tf.zeros(shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3],
+                 name="context", dtype=tf.float32),
+        dtype=tf.float32,
+        shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3],
+        trainable=False)
+      context_labels = tf.Variable([0] * params['batch_size'], name="context_labels", dtype=tf.int32,
+                                   shape=[params['batch_size']], trainable=False)
+
+      logits = network(inputs=context, is_training=True)
 
     lr = params['lr']
     state.optimizer = tf.train.AdamOptimizer(
