@@ -289,8 +289,8 @@ def run_next(sess, get_next, load_input, device):
   with tf.device(device):
     if state.init:
       print('Initializing...')
-      #sess.run(tf.global_variables_initializer())
-      sess.run(state.init)
+      sess.run(tf.global_variables_initializer())
+      #sess.run(state.init)
       print('Initialized.')
       if 'RESTORE_FROM' in os.environ:
         ckpt = os.environ['RESTORE_FROM']
@@ -723,7 +723,7 @@ def shard(sess, i, input_batch, device):
   load_context_labels = tf.assign(context_labels, labels)
   load_context = tf.assign(context, images)
   load_input = tf.group([load_context, load_context_labels])
-  state.init = tf.global_variables_initializer()
+  state.init = True
   while True:
     v_losses = run_next(sess, lambda sess: get_next, load_input, device)
     now = time.time()
