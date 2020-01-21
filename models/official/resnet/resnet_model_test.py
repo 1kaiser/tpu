@@ -634,12 +634,12 @@ def shard(sess, i, input_batch, device):
       """
       predictions = tf.argmax(logits, axis=1)
       top_1_accuracy = tf.metrics.accuracy(labels, predictions)
-      in_top_5 = tf.cast(tf.nn.in_top_k(logits, labels, 5), tf.float32)
-      top_5_accuracy = tf.metrics.mean(in_top_5)
+      #in_top_5 = tf.cast(tf.nn.in_top_k(logits, labels, 5), tf.float32)
+      #top_5_accuracy = tf.metrics.mean(in_top_5)
 
       return {
           'top_1_accuracy': top_1_accuracy,
-          'top_5_accuracy': top_5_accuracy,
+          #'top_5_accuracy': top_5_accuracy,
       }
 
     state.labels = context_labels
