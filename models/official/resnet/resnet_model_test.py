@@ -569,7 +569,8 @@ def shard(sess, i, input_batch, device):
     state.steps_per_epoch = steps_per_epoch = params['num_train_images'] / params['train_batch_size']
     state.current_epoch = current_epoch = (tf.cast(global_step, tf.float32) / steps_per_epoch)
     state.mult_lr = tf.Variable(1.0, dtype=tf.float32, shape=[], trainable=False)
-    state.set_lr = tf.Variable(-1.0, dtype=tf.float32, shape=[], trainable=False)
+    initial_lr = -1.0 if not 'SET_LEARNING_RATE' in os.environ else float(os.environ['SET_LEARNING_RATE'])
+    state.set_lr = tf.Variable(initial_lr, dtype=tf.float32, shape=[], trainable=False)
 
     #learning_rate = params['lr']
     learning_rate = learning_rate_schedule(params, current_epoch)
