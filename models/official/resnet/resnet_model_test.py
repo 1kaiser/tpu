@@ -70,6 +70,7 @@ params['momentum'] = 0.9
 params['weight_decay'] = 0.0001
 params['enable_lars'] = False
 params['base_learning_rate'] = 0.1
+params['warmup_epochs'] = int(os.environ['WARMUP_EPOCHS']) if 'WARMUP_EPOCHS' in os.environ else 5
 
 from pprint import pprint
 pprint(params)
@@ -343,13 +344,12 @@ def main():
 MEAN_RGB = [0.485 * 255, 0.456 * 255, 0.406 * 255]
 STDDEV_RGB = [0.229 * 255, 0.224 * 255, 0.225 * 255]
 
-
 def get_lr_schedule(train_steps, num_train_images, train_batch_size):
   """learning rate schedule."""
   steps_per_epoch = np.floor(num_train_images / train_batch_size)
   train_epochs = train_steps / steps_per_epoch
   return [  # (multiplier, epoch to start) tuples
-      (1.0, np.floor(5 / 90 * train_epochs)),
+      (1.0, np.floor(params['warmup_epochs'] / 90 * train_epochs)),
       (0.1, np.floor(30 / 90 * train_epochs)),
       (0.01, np.floor(60 / 90 * train_epochs)),
       (0.001, np.floor(80 / 90 * train_epochs))
@@ -617,7 +617,7 @@ def shard(sess, i, input_batch, device):
     v_rate = sess.run(state.lr)
     v_step = sess.run(state.global_step)
     v_epoch = sess.run(state.current_epoch)
-    print('[%.2fs | %d] %d examples in %.2fs (%.2f examples/sec)lr=%.12f step=%d epoch=%f' % (total, state.counter, n, elapsed, n / elapsed, v_rate, v_step, v_epoch))
+    print('[%.2fs | %d] %d examples in %.2fs (%.2f examples/sec) lr=%.12f step=%d epoch=%f' % (total, state.counter, n, elapsed, n / elapsed, v_rate, v_step, v_epoch))
     state.prev_time = now
   print('Done')
   import pdb
