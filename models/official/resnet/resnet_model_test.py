@@ -388,8 +388,7 @@ def main():
     #sess.run(reader.enqueue, dict(zip(reader.placeholders, data_loader(sess))))
     threads = []
     def thunk(i):
-      while state.init:
-        time.sleep(1.0)
+      time.sleep(15.0)
       print('Starting input threads...')
       threads.extend(reader.start_threads(sess, n_threads=1))
     parallelize([0], thunk)
