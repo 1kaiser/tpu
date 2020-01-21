@@ -39,6 +39,8 @@ filename = 'gs://gpt-2-poetry/data/imagenet/out/train-00000-of-01024'
 filename = 'gs://gpt-2-poetry/data/imagenet/out/validation-00000-of-00128'
 
 params = {}
+#params['data_dir'] = 'gs://gpt-2-poetry/data/imagenet/out'
+params['data_dir'] = 'gs://cloud-tpu-test-datasets/fake_imagenet'
 params['label_smoothing'] = 0.1
 params['num_label_classes'] = 1001
 params['beta1'] = 0.9
@@ -101,6 +103,24 @@ def iterate_imagenet(sess):
     results = list(body())
     labels = [x[0] for x in results]
     images = [x[1] for x in results]
+    return labels, images
+  return get_next
+
+from official.resnet import imagenet_input
+
+params['transpose_input'] = True
+
+def iterate_imagenet():
+  use_bfloat16 = params['precision'] == 'bfloat16'
+  imagenet_train, imagenet_eval = [
+    imagenet_input.ImageNetInput(is_training=True, data_dir=params['data_dir'], transpose_input=params['transpose_input'], cache=True,
+                                 image_size=224, num_parallel_calls=4, include_background_label=True, use_bfloat16=use_bfloat16)
+    for is_training in [True, False]]
+  zz = imagenet_train.input_fn(params=params)
+  it = zz.make_one_shot_iterator()
+  nxt = it.get_next()
+  def get_next(sess):
+    images, labels = sess.run(nxt)
     return labels, images
   return get_next
 
@@ -182,9 +202,9 @@ def run_next(sess, get_next, context, context_labels):
   labels, images = get_next(sess)
   d = {}
   print('Loading labels...')
-  print(load2(context_labels, labels, session=sess))
+  print(load(context_labels, labels, session=sess))
   print('Loading images...')
-  load2(context, images, session=sess)
+  load(context, images, session=sess)
   print('Loaded')
   if state.init:
     print('Initializing...')
@@ -251,42 +271,63 @@ def main():
   else:
     shard(sess, 0)
 
+
+# The input tensor is in the range of [0, 255], we need to scale them to the
+# range of [0, 1]
+MEAN_RGB = [0.485 * 255, 0.456 * 255, 0.406 * 255]
+STDDEV_RGB = [0.229 * 255, 0.224 * 255, 0.225 * 255]
+
+
 def shard(sess, i):
   scope = 'resnet_model'
   prefix = 'core%04d' % i
   with tf.variable_scope(prefix + '/' + scope, reuse=tf.AUTO_REUSE):
+    shape = [params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3]
+    if params['transpose_input']:
+      shape = [params['batch_size'] * params['image_size'] * params['image_size'] * 3]
     if params['precision'] == 'bfloat16':
       with tf.tpu.bfloat16_scope():
         print('Using bfloat16')
         network = resnet_model.resnet_v1(resnet_depth=50,
                                          num_classes=1001,
                                          data_format='channels_last')
-        # input_bhw3 = tf.placeholder(tf.float32, [1, 224, 224, 3])
         context = tf.Variable(
-          tf.zeros(shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3],
-                   name="context", dtype=tf.float32),
-          dtype=tf.float32,
-          shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3], trainable=False)
+          tf.zeros(shape=shape, name="context", dtype=tf.bfloat16),
+          dtype=tf.bfloat16,
+          shape=shape, trainable=False)
         context_labels = tf.Variable([0] * params['batch_size'], name="context_labels", dtype=tf.int32,
                                      shape=[params['batch_size']], trainable=False)
 
-        logits = network(inputs=context, is_training=True)
+        features = tf.reshape(context, [params['image_size'], params['image_size'], 3, -1])
+        features = tf.transpose(features, [3, 0, 1, 2])  # HWCN to NHWC
+
+        # Normalize the image to zero mean and unit variance.
+        features -= tf.constant(MEAN_RGB, shape=[1, 1, 3], dtype=features.dtype)
+        features /= tf.constant(STDDEV_RGB, shape=[1, 1, 3], dtype=features.dtype)
+
+        logits = network(inputs=features, is_training=True)
         logits = tf.cast(logits, tf.float32)
     else:
       network = resnet_model.resnet_v1(resnet_depth=50,
                                        num_classes=1001,
                                        data_format='channels_last')
-      # input_bhw3 = tf.placeholder(tf.float32, [1, 224, 224, 3])
       context = tf.Variable(
-        tf.zeros(shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3],
+        tf.zeros(shape=shape,
                  name="context", dtype=tf.float32),
         dtype=tf.float32,
-        shape=[params['batch_size'] // params['num_cores'], params['image_size'], params['image_size'], 3],
+        shape=shape,
         trainable=False)
       context_labels = tf.Variable([0] * params['batch_size'], name="context_labels", dtype=tf.int32,
                                    shape=[params['batch_size']], trainable=False)
 
-      logits = network(inputs=context, is_training=True)
+      features = tf.reshape(context, [params['image_size'], params['image_size'], 3, -1])
+      features = tf.transpose(features, [3, 0, 1, 2])  # HWCN to NHWC
+
+      # Normalize the image to zero mean and unit variance.
+      features -= tf.constant(MEAN_RGB, shape=[1, 1, 3], dtype=features.dtype)
+      features /= tf.constant(STDDEV_RGB, shape=[1, 1, 3], dtype=features.dtype)
+
+      logits = network(inputs=features, is_training=True)
 
     lr = params['lr']
     state.optimizer = tf.train.AdamOptimizer(
@@ -333,7 +374,7 @@ def shard(sess, i):
     # print('Restored.')
   # _ = sess.run(resnet_output, feed_dict={input_bhw3: np.random.randn(1, 224, 224, 3)})
   # print('TKTK', repr(_))
-  get_next = iterate_imagenet(sess)
+  get_next = iterate_imagenet()
   state.start_time = time.time()
   state.prev_time = time.time()
   state.counter = 0
